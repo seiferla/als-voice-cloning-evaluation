@@ -15,3 +15,5 @@ if not FISH_API_KEY:
 S2PRO_WS_URI = "wss://api.fish.audio/v1/tts/live"
 S2PRO_MODEL = "s2-pro"
 VOXTRAL_MODEL = "voxtral-mini-tts-2603"
+QWEN3_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+QWEN3_DEVICE = "cuda:0"
