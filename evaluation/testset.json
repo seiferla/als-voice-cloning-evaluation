@@ -1,0 +1,8 @@
+{
+  "reference_audio": "data/wav/REPLACE_WITH_REFERENCE_AUDIO.wav",
+  "s2pro_reference_id": "REPLACE_WITH_FISH_AUDIO_REFERENCE_ID",
+  "texts": [
+    "Ersten Testsatz hier einfügen.",
+    "Zweiten Testsatz hier einfügen."
+  ]
+}

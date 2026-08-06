@@ -55,15 +55,27 @@ print(f"RTF: {result['metrics']['rtf']:.3f}")
 ### Evaluation Metrics
 
 ```python
-from myecho.evaluation.metrics import similarity, wer
-import numpy as np
+from myecho.evaluation.metrics import similarity, wer, extract_embedding, transcribe
 
-# Speaker similarity
-sim_score = similarity(ref_embedding, cloned_embedding)
+ref_embedding = extract_embedding("reference.wav")
+clone_embedding = extract_embedding("cloned.wav")
+sim_score = similarity(ref_embedding, clone_embedding)
 
-# Word error rate
-error_rate = wer("reference text", "asr output")
+asr_text = transcribe("cloned.wav")
+error_rate = wer("original text that was synthesized", asr_text)
 ```
+
+### Running the Evaluation Pipeline
+
+1. Fill in `evaluation/testset.json` with the reference audio and texts to synthesize
+2. Run:
+```bash
+uv sync --extra eval
+uv run python evaluation/run_eval.py
+```
+3. Results (per-sample SIM/WER/latency/RTF + generated audio) are saved to `evaluation/results/`
+
+Qwen3 is skipped automatically until its API credentials are configured.
 
 ## Dependencies
 
@@ -75,7 +87,7 @@ error_rate = wer("reference text", "asr output")
 
 **Optional (evaluation):**
 ```bash
-uv sync --extra eval  # Adds: jiwer, openai-whisper, whisperx
+uv sync --extra eval  # Adds: jiwer, openai-whisper, whisperx, speechbrain, torch
 ```
 
 **Optional (notebooks):**
