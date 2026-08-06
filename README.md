@@ -1,66 +1,113 @@
-# myEcho — ALS Voice Cloning Evaluation
+# Voice Cloning Evaluation Framework
 
-Dieses Repository enthält die Evaluation verschiedener Voice-Cloning-Modelle im Rahmen des **myEcho**-Projekts. Ziel ist es, eine geeignete Lösung zu finden, um die Stimme einer deutschen ALS-Patientin anhand weniger Legacy-Audiodaten (Videos, Sprachnachrichten) zu klonen.
+Evaluation framework for open-source TTS and voice cloning models. Includes audio preprocessing, model inference, and evaluation metrics.
 
----
-
-## Evaluierte Modelle
-
-| Modell | Typ | Beschreibung |
-|---|---|---|
-| **S2-pro** | API (Fish Audio) | WebSocket-basiertes Streaming-TTS mit Reference-Voice |
-| **Voxtral** | Open Source | — |
-| **Qwen3** | Open Source | — |
-
----
-
-## Evaluationsmetriken
-
-### Objektiv
-| Metrik | Beschreibung |
-|---|---|
-| **SIM** | Speaker Similarity — cosine similarity zwischen Sprecher-Embeddings (z.B. WavLM, ECAPA) |
-| **WER** | Word Error Rate — Transkriptionsgenauigkeit via ASR |
-
-### Subjektiv
-| Metrik | Beschreibung |
-|---|---|
-| **N-MOS** | Naturalness Mean Opinion Score — menschliche Bewertung der Natürlichkeit (1–5) |
-| **Turing Test** | Können Hörer Original und Klon unterscheiden? |
-
-### Performance
-| Metrik | Beschreibung |
-|---|---|
-| **RTF** | Real-Time Factor — Verhältnis Inferenzzeit zu Audiodauer (< 1 = Echtzeit) |
-| **TTFA** | Time To First Audio — Latenz bis zum ersten Audiopaket (Streaming) |
-
----
-
-## Projektstruktur
-
-```
-├── api/
-│   └── s2_pro.py                  — S2-pro WebSocket TTS Client (Fish Audio)
-├── notebooks/
-│   ├── data_preprocessing.ipynb  — Audio-Vorverarbeitung (WhisperX, pydub, Pedalboard)
-│   └── data_analysis.ipynb       — Analyse der Audiodaten
-└── data/                          — Lokale Audiodaten (gitignored)
-```
-
----
-
-## Datenpipeline
-
-1. **Preprocessing** (`data_preprocessing.ipynb`): Stille-Entfernung, LUFS-Normalisierung, Limiter, Transkription & Alignment mit WhisperX
-2. **Modell-Inferenz**: Klonierung per jeweiligem Modell
-3. **Evaluation**: Berechnung der o.g. Metriken
-
----
-
-## Setup
+## Quick Start
 
 ```bash
-pip install websockets msgpack mutagen pydub pedalboard whisperx librosa
+# Install dependencies
+uv sync --extra notebook
+
+# Setup environment
+cp .env.example .env
+# Add FISH_API_KEY to .env
+
+# Run notebooks
+uv run jupyter notebook notebooks/data_analysis.ipynb
 ```
 
-> Für S2-pro wird ein API-Key von [fish.audio](https://fish.audio) benötigt. Diesen als Umgebungsvariable `FISH_API_KEY` setzen.
+## Project Structure
+
+```
+src/myecho/
+├── config.py                    # Load API keys from .env
+├── models/
+│   └── s2_pro.py               # S2-Pro TTS (Fish Audio API)
+└── evaluation/
+    └── metrics.py              # SIM, WER metrics
+
+notebooks/
+├── data_preprocessing.ipynb     # Audio preprocessing (LUFS, silence removal, WhisperX)
+├── data_analysis.ipynb          # Analysis & visualization
+└── evaluation.ipynb             # Metric evaluation
+
+data/                            # Audio files (gitignored)
+├── wav/
+├── m4a/
+└── DeepFilterNet/
+```
+
+## Usage
+
+### Python API
+
+```python
+from myecho.models.s2_pro import S2ProTTS
+import asyncio
+
+tts = S2ProTTS(reference_id="your_reference_id")
+result = asyncio.run(tts.synthesize("Hallo Welt"))
+
+print(f"TTFA: {result['metrics']['ttfa']*1000:.0f} ms")
+print(f"RTF: {result['metrics']['rtf']:.3f}")
+```
+
+### Evaluation Metrics
+
+```python
+from myecho.evaluation.metrics import similarity, wer
+import numpy as np
+
+# Speaker similarity
+sim_score = similarity(ref_embedding, cloned_embedding)
+
+# Word error rate
+error_rate = wer("reference text", "asr output")
+```
+
+## Dependencies
+
+**Core:**
+- `websockets`, `msgpack` — S2-Pro WebSocket communication
+- `pydub`, `pedalboard` — Audio processing & effects
+- `librosa`, `numpy`, `scipy` — Audio analysis
+- `python-dotenv` — Environment variables
+
+**Optional (evaluation):**
+```bash
+uv sync --extra eval  # Adds: jiwer, openai-whisper, whisperx
+```
+
+**Optional (notebooks):**
+```bash
+uv sync --extra notebook  # Adds: jupyter, matplotlib, plotly, pandas, sklearn, transformers, torch, etc.
+```
+
+## Models Evaluated
+
+- **S2-Pro** (Fish Audio API) — WebSocket streaming TTS with reference voice
+- **Voxtral** (Open Source) — To be implemented
+- **Qwen3** (Open Source) — To be implemented
+
+## Metrics
+
+**Objective:**
+- **SIM** — Speaker Similarity (cosine distance of embeddings)
+- **WER** — Word Error Rate (via Whisper/WhisperX)
+
+**Performance:**
+- **RTF** — Real-Time Factor
+- **TTFA** — Time To First Audio (streaming latency)
+
+## Setup Notes
+
+- API keys are loaded from `.env` file (not in repository)
+- `.env.example` shows required variables
+- All audio data is gitignored (privacy/size)
+- Notebooks require CUDA for transcription/embeddings (CPU slower)
+
+## Files
+
+- `pyproject.toml` — Dependencies and project metadata
+- `.env.example` — Template for environment variables
+- `src/myecho/` — Main package code
