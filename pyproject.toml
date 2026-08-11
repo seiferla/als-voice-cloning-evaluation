@@ -21,6 +21,12 @@ dependencies = [
     "mistralai>=0.0.7",
 ]
 
+[project.scripts]
+voxtral-synthesize = "myecho.cli.voxtral_synthesize:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/myecho"]
+
 [project.optional-dependencies]
 eval = [
     "jiwer>=3.0.0",

@@ -5,7 +5,12 @@ import io
 import time
 from pathlib import Path
 import soundfile as sf
-from mistralai import Mistral
+
+try:
+    from mistralai import Mistral  # neuere/ältere SDKs
+except ImportError:  # namespace layout in mistralai>=2.x
+    from mistralai.client.sdk import Mistral
+
 from myecho.config import MISTRAL_API_KEY
 
 
@@ -45,14 +50,22 @@ class VoxtralTTS:
         t_finish = time.perf_counter()
 
         audio_data = base64.b64decode(response.audio_data)
-        metrics = {"latency": t_finish - t_request, "rtf": None}
+        # latency: Sekunden (Request -> Response)
+        # rtf:     Real-Time-Factor = latency_s / audio_duration_s (dimensionslos)
+        # audio_duration_s: Sekunden
+        metrics = {
+            "latency": t_finish - t_request,
+            "rtf": None,
+            "audio_duration_s": None,
+        }
 
         # Calculate audio duration and RTF
         try:
             array, sr = sf.read(io.BytesIO(audio_data))
             duration = len(array) / sr
+            metrics["audio_duration_s"] = duration
             metrics["rtf"] = metrics["latency"] / duration
-        except:
+        except Exception:
             pass
 
         if output_path:
