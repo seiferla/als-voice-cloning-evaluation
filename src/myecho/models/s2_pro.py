@@ -58,8 +58,9 @@ class S2ProTTS:
                 from mutagen.mp3 import MP3
                 import io
                 duration = MP3(io.BytesIO(audio_data)).info.length
+                metrics["audio_duration_s"] = duration
                 metrics["rtf"] = metrics["latency"] / duration
-            except:
+            except Exception:
                 pass
 
         if output_path:
