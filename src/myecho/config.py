@@ -1,4 +1,3 @@
-
 """Configuration from environment variables."""
 
 import os
@@ -11,6 +10,9 @@ FISH_API_KEY = os.getenv("FISH_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Voice IDs
+VOXTRAL_VOICE_ID = os.getenv("VOXTRAL_VOICE_ID")
 
 # Model configs
 S2PRO_WS_URI = "wss://api.fish.audio/v1/tts/live"

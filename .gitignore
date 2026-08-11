@@ -3,6 +3,7 @@ data/
 images/
 models/output/
 evaluation/results/
+outputs/
 
 # Environment & Secrets
 .env
