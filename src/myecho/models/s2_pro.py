@@ -5,12 +5,12 @@ import time
 import websockets
 import msgpack
 from pathlib import Path
-from myecho.config import FISH_API_KEY, S2PRO_WS_URI, S2PRO_MODEL
+from myecho.config import S2PRO_API_KEY, S2PRO_WS_URI, S2PRO_MODEL
 
 
 class S2ProTTS:
     def __init__(self, reference_id=None):
-        self.api_key = FISH_API_KEY
+        self.api_key = S2PRO_API_KEY
         self.uri = S2PRO_WS_URI
         self.model = S2PRO_MODEL
         self.reference_id = reference_id

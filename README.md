@@ -10,7 +10,7 @@ uv sync
 
 # Setup API keys
 cp .env.example .env
-# Fill in: FISH_API_KEY, MISTRAL_API_KEY (optional: DASHSCOPE_API_KEY for Qwen3)
+# Fill in: S2PRO_API_KEY, VOXTRAL_API_KEY (optional: QWEN3_API_KEY for Qwen3)
 
 # Install evaluation tools (for SIM/WER/ASR/embedding extraction)
 uv sync --extra eval
@@ -146,11 +146,11 @@ print(f"WER: {error_rate:.3f}")
 ### .env Template
 
 ```bash
-FISH_API_KEY=your-key-here                          # S2-Pro
-MISTRAL_API_KEY=your-key-here                       # Voxtral
-DASHSCOPE_API_KEY=your-key-here                     # Qwen3 (optional)
-DASHSCOPE_BASE_HTTP_API_URL=https://dashscope.aliyuncs.com/api/v1
-DASHSCOPE_BASE_WS_API_URL=wss://dashscope.aliyuncs.com/api/v1
+S2PRO_API_KEY=your-key-here                          # S2-Pro
+VOXTRAL_API_KEY=your-key-here                       # Voxtral
+QWEN3_API_KEY=your-key-here                     # Qwen3 (optional)
+QWEN3_BASE_HTTP_API_URL=https://dashscope.aliyuncs.com/api/v1
+QWEN3_BASE_WS_API_URL=wss://dashscope.aliyuncs.com/api/v1
 ```
 
 ## Notes
