@@ -60,6 +60,7 @@ class Qwen3TTS:
         metrics = {
             "latency": t_finish - t_request,
             "ttfa": (ttfa_ms / 1000) if ttfa_ms is not None else None,
+            "audio_duration_s": None,
             "rtf": None,
             "request_id": synthesizer.get_last_request_id(),
         }
@@ -67,6 +68,7 @@ class Qwen3TTS:
         try:
             array, sr = sf.read(io.BytesIO(audio_data))
             duration = len(array) / sr
+            metrics["audio_duration_s"] = duration
             metrics["rtf"] = metrics["latency"] / duration
         except Exception:
             pass

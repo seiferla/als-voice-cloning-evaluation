@@ -20,11 +20,13 @@ dependencies = [
     "soundfile>=0.12.0",
     "mistralai>=0.0.7",
     "mutagen>=1.47.0",
+    "dashscope>=1.20.0",
 ]
 
 [project.scripts]
 voxtral-synthesize = "myecho.cli.voxtral_synthesize:main"
 s2pro-synthesize = "myecho.cli.s2pro_synthesize:main"
+qwen3-synthesize = "myecho.cli.qwen3_synthesize:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/myecho"]

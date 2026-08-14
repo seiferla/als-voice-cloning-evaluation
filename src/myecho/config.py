@@ -14,6 +14,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Voice IDs
 VOXTRAL_VOICE_ID = os.getenv("VOXTRAL_VOICE_ID")
 FISH_REFERENCE_ID = os.getenv("FISH_REFERENCE_ID")
+QWEN3_VOICE_ID = os.getenv("QWEN3_VOICE_ID")
 
 # Model configs
 S2PRO_WS_URI = "wss://api.fish.audio/v1/tts/live"
