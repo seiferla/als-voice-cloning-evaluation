@@ -6,15 +6,15 @@ from pathlib import Path
 import soundfile as sf
 import dashscope
 from dashscope.audio.tts_v2 import VoiceEnrollmentService, SpeechSynthesizer, AudioFormat
-from myecho.config import DASHSCOPE_API_KEY, DASHSCOPE_BASE_HTTP_API_URL, DASHSCOPE_BASE_WS_API_URL
+from myecho.config import QWEN3_API_KEY, QWEN3_BASE_HTTP_API_URL, QWEN3_BASE_WS_API_URL
 
 
 class Qwen3TTS:
     def __init__(self, voice_id=None, voice_name="myecho", sample_audio_url=None):
         # Region config must happen before any client is instantiated.
-        dashscope.api_key = DASHSCOPE_API_KEY
-        dashscope.base_http_api_url = DASHSCOPE_BASE_HTTP_API_URL
-        dashscope.base_websocket_api_url = DASHSCOPE_BASE_WS_API_URL
+        dashscope.api_key = QWEN3_API_KEY
+        dashscope.base_http_api_url = QWEN3_BASE_HTTP_API_URL
+        dashscope.base_websocket_api_url = QWEN3_BASE_WS_API_URL
 
         self.model = "qwen-audio-3.0-tts-flash"
         self.voice_id = voice_id

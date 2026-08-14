@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from myecho.config import MISTRAL_API_KEY, VOXTRAL_VOICE_ID
+from myecho.config import VOXTRAL_API_KEY, VOXTRAL_VOICE_ID
 from myecho.models.voxtral import VoxtralTTS
 
 
@@ -37,8 +37,8 @@ async def _run(text: str, voice_id: str, out_path: str) -> dict:
 def main() -> int:
     args = parse_args()
 
-    if not MISTRAL_API_KEY:
-        print("ERROR: MISTRAL_API_KEY fehlt in .env", file=sys.stderr)
+    if not VOXTRAL_API_KEY:
+        print("ERROR: VOXTRAL_API_KEY fehlt in .env", file=sys.stderr)
         return 2
     if not args.voice_id:
         print("ERROR: VOXTRAL_VOICE_ID fehlt (in .env oder --voice-id)", file=sys.stderr)

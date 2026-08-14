@@ -11,12 +11,12 @@ try:
 except ImportError:  # namespace layout in mistralai>=2.x
     from mistralai.client.sdk import Mistral
 
-from myecho.config import MISTRAL_API_KEY
+from myecho.config import VOXTRAL_API_KEY
 
 
 class VoxtralTTS:
     def __init__(self, voice_id=None, voice_name="VoiceClone", sample_audio_path=None):
-        self.client = Mistral(api_key=MISTRAL_API_KEY)
+        self.client = Mistral(api_key=VOXTRAL_API_KEY)
         self.model = "voxtral-mini-tts-2603"
         self.voice_id = voice_id
         self.voice_name = voice_name

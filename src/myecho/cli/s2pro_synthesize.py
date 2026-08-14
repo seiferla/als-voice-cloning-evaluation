@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from myecho.config import FISH_API_KEY, FISH_REFERENCE_ID
+from myecho.config import S2PRO_API_KEY, S2PRO_REFERENCE_ID
 from myecho.models.s2_pro import S2ProTTS
 
 
@@ -18,8 +18,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reference-id",
-        default=FISH_REFERENCE_ID,
-        help="Reference/Model ID (default: aus .env FISH_REFERENCE_ID).",
+        default=S2PRO_REFERENCE_ID,
+        help="Reference/Model ID (default: aus .env S2PRO_REFERENCE_ID).",
     )
     parser.add_argument(
         "--out",
@@ -40,11 +40,11 @@ async def _run(text: str, reference_id: str, out_path: str, speed: float, volume
 def main() -> int:
     args = parse_args()
 
-    if not FISH_API_KEY:
-        print("ERROR: FISH_API_KEY fehlt in .env", file=sys.stderr)
+    if not S2PRO_API_KEY:
+        print("ERROR: S2PRO_API_KEY fehlt in .env", file=sys.stderr)
         return 2
     if not args.reference_id:
-        print("ERROR: FISH_REFERENCE_ID fehlt (in .env oder --reference-id)", file=sys.stderr)
+        print("ERROR: S2PRO_REFERENCE_ID fehlt (in .env oder --reference-id)", file=sys.stderr)
         return 2
 
     result = asyncio.run(_run(args.text, args.reference_id, args.out, args.speed, args.volume))

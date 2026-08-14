@@ -5,7 +5,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from myecho.config import DASHSCOPE_API_KEY, QWEN3_VOICE_ID
+from myecho.config import QWEN3_API_KEY, QWEN3_VOICE_ID
 from myecho.models.qwen3 import Qwen3TTS
 
 
@@ -37,8 +37,8 @@ async def _run(text: str, voice_id: str, out_path: str) -> dict:
 def main() -> int:
     args = parse_args()
 
-    if not DASHSCOPE_API_KEY:
-        print("ERROR: DASHSCOPE_API_KEY fehlt in .env", file=sys.stderr)
+    if not QWEN3_API_KEY:
+        print("ERROR: QWEN3_API_KEY fehlt in .env", file=sys.stderr)
         return 2
     if not args.voice_id:
         print("ERROR: QWEN3_VOICE_ID fehlt (in .env oder --voice-id)", file=sys.stderr)
