@@ -56,3 +56,11 @@ qwen3 = [
     "torch>=2.0.0",
     "flash-attn>=2.5.0",
 ]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "notebook" },
+        { extra = "qwen3" },
+    ],
+]
