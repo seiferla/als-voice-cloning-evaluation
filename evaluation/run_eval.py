@@ -3,7 +3,12 @@
 Usage:
     uv run python evaluation/run_eval.py
 
-Fill in evaluation/testset.json first (reference audio + texts to synthesize).
+Fill in evaluation/testset.json first (one or more cases, each with its own
+reference audio + texts to synthesize).
+
+Voice IDs come from .env by default (S2PRO_REFERENCE_ID, VOXTRAL_VOICE_ID,
+QWEN3_VOICE_ID) and can be overridden per case in testset.json. A model whose
+voice ID is missing is skipped, so a partial run is still possible.
 """
 
 import asyncio
@@ -11,12 +16,28 @@ import csv
 import json
 from pathlib import Path
 
+from myecho.config import (
+    QWEN3_VOICE_ID,
+    S2PRO_REFERENCE_ID,
+    VOXTRAL_VOICE_ID,
+)
+from myecho.evaluation.metrics import extract_embedding, similarity, transcribe, wer
+from myecho.models.qwen3 import Qwen3TTS
 from myecho.models.s2_pro import S2ProTTS
 from myecho.models.voxtral import VoxtralTTS
-from myecho.evaluation.metrics import similarity, wer, extract_embedding, transcribe
 
 TESTSET_PATH = Path(__file__).parent / "testset.json"
 RESULTS_DIR = Path(__file__).parent / "results"
+
+# All three models now write WAV, so the eval reads one lossless format only.
+AUDIO_EXT = "wav"
+
+CSV_FIELDS = [
+    "case", "model", "text_id", "sim", "wer",
+    "latency", "ttfa", "rtf", "audio_duration_s", "connect_s", "audio_file",
+]
+
+PLACEHOLDERS = ("REPLACE", "your_")
 
 
 def load_testset():
@@ -24,79 +45,114 @@ def load_testset():
         return json.load(f)
 
 
+def is_configured(value):
+    """False for None, empty, or a leftover template placeholder."""
+    if not value:
+        return False
+    return not any(p in value for p in PLACEHOLDERS)
+
+
+def build_models(case):
+    """Resolve which models are runnable for this case: [(name, model), ...]."""
+    models = []
+
+    s2pro_id = case.get("s2pro_reference_id") or S2PRO_REFERENCE_ID
+    if is_configured(s2pro_id):
+        models.append(("s2pro", S2ProTTS(reference_id=s2pro_id)))
+    else:
+        print("  skip s2pro: no reference_id (S2PRO_REFERENCE_ID or case override)")
+
+    voxtral_id = case.get("voxtral_voice_id") or VOXTRAL_VOICE_ID
+    if is_configured(voxtral_id):
+        # Reuse the existing voice instead of calling create_voice() per run -
+        # a fresh clone every run would make SIM values non-reproducible.
+        models.append(("voxtral", VoxtralTTS(voice_id=voxtral_id)))
+    else:
+        print("  skip voxtral: no voice_id (VOXTRAL_VOICE_ID or case override)")
+
+    qwen3_id = case.get("qwen3_voice_id") or QWEN3_VOICE_ID
+    if is_configured(qwen3_id):
+        models.append(("qwen3", Qwen3TTS(voice_id=qwen3_id)))
+    else:
+        print("  skip qwen3: no voice_id (QWEN3_VOICE_ID or case override)")
+
+    return models
+
+
 async def run_model(name, model, texts, ref_embedding, out_dir):
     rows = []
     for i, text in enumerate(texts):
-        output_path = out_dir / f"{i:02d}.wav"
+        output_path = out_dir / f"{i:02d}.{AUDIO_EXT}"
         try:
             result = await model.synthesize(text, output_path=output_path)
         except Exception as e:
-            print(f"  [{name}] text {i} FAILED: {e}")
+            print(f"    [{name}] text {i} SYNTHESIS FAILED: {type(e).__name__}: {e}")
             continue
 
-        clone_embedding = extract_embedding(output_path)
-        sim_score = similarity(ref_embedding, clone_embedding)
-        asr_text = transcribe(output_path)
-        wer_score = wer(text, asr_text)
+        try:
+            clone_embedding = extract_embedding(output_path)
+            sim_score = similarity(ref_embedding, clone_embedding)
+            asr_text = transcribe(output_path)
+            wer_score = wer(text, asr_text)
+        except Exception as e:
+            print(f"    [{name}] text {i} SCORING FAILED: {type(e).__name__}: {e}")
+            continue
 
         m = result["metrics"]
-        row = {
+        rows.append({
             "model": name,
             "text_id": i,
             "sim": round(sim_score, 4),
             "wer": round(wer_score, 4),
             "latency": m.get("latency"),
-            "rtf": m.get("rtf"),
             "ttfa": m.get("ttfa"),
-        }
-        rows.append(row)
-        print(f"  [{name}] {i}: SIM={sim_score:.3f}  WER={wer_score:.3f}  RTF={m.get('rtf')}")
+            "rtf": m.get("rtf"),
+            "audio_duration_s": m.get("audio_duration_s"),
+            "connect_s": m.get("connect_s"),
+            "audio_file": str(output_path),
+        })
+        print(f"    [{name}] {i}: SIM={sim_score:.3f}  WER={wer_score:.3f}  RTF={_fmt(m.get('rtf'))}")
+
+    return rows
+
+
+def _fmt(value, digits=3):
+    return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "n/a"
+
+
+async def run_case(case):
+    name = case["name"]
+    texts = case["texts"]
+    reference_audio = case["reference_audio"]
+
+    print(f"\n=== Case: {name} ===")
+    if not Path(reference_audio).exists():
+        print(f"  reference_audio not found: {reference_audio} - case skipped")
+        return []
+
+    print("Extracting reference speaker embedding...")
+    ref_embedding = extract_embedding(reference_audio)
+
+    case_dir = RESULTS_DIR / name
+    rows = []
+    for model_name, model in build_models(case):
+        print(f"\nRunning {model_name}...")
+        out_dir = case_dir / model_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for row in await run_model(model_name, model, texts, ref_embedding, out_dir):
+            rows.append({"case": name, **row})
 
     return rows
 
 
 async def main():
     testset = load_testset()
-    texts = testset["texts"]
-    reference_audio = testset["reference_audio"]
-
-    print("Extracting reference speaker embedding...")
-    ref_embedding = extract_embedding(reference_audio)
+    cases = testset["cases"]
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     all_rows = []
-
-    # S2-Pro (needs a reference_id already registered on Fish Audio)
-    reference_id = testset.get("s2pro_reference_id")
-    if reference_id and "REPLACE" not in reference_id:
-        print("\nRunning S2-Pro...")
-        out_dir = RESULTS_DIR / "s2pro"
-        out_dir.mkdir(exist_ok=True)
-        model = S2ProTTS(reference_id=reference_id)
-        all_rows += await run_model("s2pro", model, texts, ref_embedding, out_dir)
-    else:
-        print("\nSkipping S2-Pro (set 's2pro_reference_id' in testset.json)")
-
-    # Voxtral (creates a voice clone from the reference audio)
-    print("\nRunning Voxtral...")
-    out_dir = RESULTS_DIR / "voxtral"
-    out_dir.mkdir(exist_ok=True)
-    model = VoxtralTTS()
-    model.create_voice(reference_audio)
-    all_rows += await run_model("voxtral", model, texts, ref_embedding, out_dir)
-
-    # Qwen3 (optional — only runs once configured with a DashScope token)
-    try:
-        from myecho.models.qwen3 import Qwen3TTS
-
-        print("\nRunning Qwen3...")
-        out_dir = RESULTS_DIR / "qwen3"
-        out_dir.mkdir(exist_ok=True)
-        model = Qwen3TTS()
-        model.create_voice(reference_audio)
-        all_rows += await run_model("qwen3", model, texts, ref_embedding, out_dir)
-    except Exception as e:
-        print(f"\nSkipping Qwen3 (not configured yet): {e}")
+    for case in cases:
+        all_rows += await run_case(case)
 
     if not all_rows:
         print("\nNo results produced.")
@@ -104,20 +160,27 @@ async def main():
 
     csv_path = RESULTS_DIR / "results.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(all_rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(all_rows)
     print(f"\nSaved results to {csv_path}")
 
-    print("\n=== Summary (mean per model) ===")
-    models = sorted(set(r["model"] for r in all_rows))
-    for m in models:
-        rows = [r for r in all_rows if r["model"] == m]
-        sim_mean = sum(r["sim"] for r in rows) / len(rows)
-        wer_mean = sum(r["wer"] for r in rows) / len(rows)
-        rtf_vals = [r["rtf"] for r in rows if r["rtf"] is not None]
-        rtf_mean = sum(rtf_vals) / len(rtf_vals) if rtf_vals else None
-        print(f"{m}: SIM={sim_mean:.3f}  WER={wer_mean:.3f}  RTF={rtf_mean}")
+    print("\n=== Summary (mean per case/model) ===")
+    for case_name, model_name in sorted({(r["case"], r["model"]) for r in all_rows}):
+        rows = [r for r in all_rows if r["case"] == case_name and r["model"] == model_name]
+        print(
+            f"{case_name}/{model_name} (n={len(rows)}): "
+            f"SIM={_fmt(_mean(rows, 'sim'))}  "
+            f"WER={_fmt(_mean(rows, 'wer'))}  "
+            f"RTF={_fmt(_mean(rows, 'rtf'))}  "
+            f"TTFA={_fmt(_mean(rows, 'ttfa'))}  "
+            f"latency={_fmt(_mean(rows, 'latency'))}"
+        )
+
+
+def _mean(rows, key):
+    values = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
+    return sum(values) / len(values) if values else None
 
 
 if __name__ == "__main__":
