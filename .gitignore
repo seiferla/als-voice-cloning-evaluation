@@ -66,3 +66,6 @@ htmlcov/
 .dmypy.json
 dmypy.json
 .ruff_cache/
+
+# Stray generated audio at repo root
+/output.*

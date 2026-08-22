@@ -53,10 +53,15 @@ class VoxtralTTS:
         # latency: Sekunden (Request -> Response)
         # rtf:     Real-Time-Factor = latency_s / audio_duration_s (dimensionslos)
         # audio_duration_s: Sekunden
+        # ttfa: not measurable - the Mistral endpoint is not streaming, so the
+        # first audio byte arrives together with the last one. Stays None so the
+        # eval CSV shows an honest gap instead of a value equal to latency.
         metrics = {
             "latency": t_finish - t_request,
+            "ttfa": None,
             "rtf": None,
             "audio_duration_s": None,
+            "connect_s": None,
         }
 
         # Calculate audio duration and RTF
