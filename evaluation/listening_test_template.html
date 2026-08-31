@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>myEcho – Subjektiver Hörtest</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.5rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
+  p.hint { color: #555; font-size: .95rem; }
+  .item { border: 1px solid #ddd; border-radius: 8px; padding: .9rem 1rem; margin: .8rem 0; }
+  .item audio { width: 100%; margin-bottom: .5rem; }
+  .scale label, .choice label { margin-right: 1rem; font-size: .95rem; }
+  .pair { display: flex; gap: 1rem; }
+  .pair > div { flex: 1; }
+  .pair-label { font-weight: 600; margin-bottom: .2rem; }
+  #rater { padding: .4rem; width: 100%; box-sizing: border-box; }
+  #download { margin: 2rem 0; padding: .7rem 1.4rem; font-size: 1rem; cursor: pointer; }
+  #status { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>myEcho – Subjektiver Hörtest</h1>
+<p class="hint">
+  Danke fürs Mithören! Teil 1 bewertet, wie natürlich einzelne Aufnahmen klingen.
+  Teil 2 fragt, welche von zwei Aufnahmen die echte (nicht geklonte) Stimme ist.
+  Am Ende auf "Ergebnisse herunterladen" klicken und die Datei im Team teilen.
+</p>
+
+<label for="rater">Dein Name / Kürzel:</label>
+<input id="rater" type="text" placeholder="z.B. Lars">
+
+<label for="rater-age">Dein Alter:</label>
+<input id="rater-age" type="number" min="1" max="120" placeholder="z.B. 34">
+
+<p>Kennst du die Person, deren Stimme geklont wurde, persönlich (z.B. Familie/Freunde)?</p>
+<div class="choice">
+  <label><input type="radio" name="rater-familiar" value="yes"> Ja</label>
+  <label><input type="radio" name="rater-familiar" value="no"> Nein</label>
+</div>
+
+<h2>Teil 1 – Natürlichkeit (1 = sehr unnatürlich, 5 = klingt wie ein echter Mensch)</h2>
+<div id="nmos-list"></div>
+
+<h2>Teil 2 – Welche Aufnahme ist echt?</h2>
+<p class="hint">Pro Paar: A und B anhören, dann die Aufnahme wählen, die du für die echte Originalstimme hältst.</p>
+<div id="turing-list"></div>
+
+<button id="download">Ergebnisse herunterladen</button>
+<p id="status"></p>
+
+<script>
+const MANIFEST = __MANIFEST_JSON__;
+
+const nmosList = document.getElementById("nmos-list");
+for (const item of MANIFEST.nmos) {
+  const div = document.createElement("div");
+  div.className = "item";
+  div.innerHTML = `
+    <audio controls src="${item.file}"></audio>
+    <div class="scale" data-nmos-id="${item.id}">
+      ${[1,2,3,4,5].map(n => `<label><input type="radio" name="nmos-${item.id}" value="${n}"> ${n}</label>`).join("")}
+    </div>`;
+  nmosList.appendChild(div);
+}
+
+const turingList = document.getElementById("turing-list");
+for (const pair of MANIFEST.turing) {
+  const div = document.createElement("div");
+  div.className = "item";
+  div.innerHTML = `
+    <div class="pair">
+      <div><div class="pair-label">A</div><audio controls src="${pair.file_a}"></audio></div>
+      <div><div class="pair-label">B</div><audio controls src="${pair.file_b}"></audio></div>
+    </div>
+    <div class="choice" data-turing-id="${pair.id}">
+      <label><input type="radio" name="turing-${pair.id}" value="A"> A ist die echte Stimme</label>
+      <label><input type="radio" name="turing-${pair.id}" value="B"> B ist die echte Stimme</label>
+    </div>`;
+  turingList.appendChild(div);
+}
+
+document.getElementById("download").addEventListener("click", () => {
+  const nmos = {};
+  for (const item of MANIFEST.nmos) {
+    const checked = document.querySelector(`input[name="nmos-${item.id}"]:checked`);
+    nmos[item.id] = checked ? Number(checked.value) : null;
+  }
+  const turing = {};
+  for (const pair of MANIFEST.turing) {
+    const checked = document.querySelector(`input[name="turing-${pair.id}"]:checked`);
+    turing[pair.id] = checked ? checked.value : null;
+  }
+
+  const missing = Object.values(nmos).filter(v => v === null).length
+    + Object.values(turing).filter(v => v === null).length;
+
+  const rater = document.getElementById("rater").value.trim() || "anonym";
+  const ageValue = document.getElementById("rater-age").value;
+  const familiarChecked = document.querySelector('input[name="rater-familiar"]:checked');
+  const payload = {
+    rater,
+    age: ageValue ? Number(ageValue) : null,
+    knows_person: familiarChecked ? familiarChecked.value : null,
+    timestamp: new Date().toISOString(),
+    nmos,
+    turing,
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ratings_${rater}_${Date.now()}.json`;
+  a.click();
+
+  document.getElementById("status").textContent = missing > 0
+    ? `Heruntergeladen – aber ${missing} Antworten fehlen noch.`
+    : "Heruntergeladen – danke!";
+});
+</script>
+
+</body>
+</html>
