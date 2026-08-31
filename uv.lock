@@ -4601,9 +4601,9 @@ version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and extra == 'extra-18-voice-cloning-eval-notebook') or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version == '3.11.*' and extra == 'extra-18-voice-cloning-eval-notebook') or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
-    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.12' and extra == 'extra-18-voice-cloning-eval-notebook') or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*' or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' or (extra == 'extra-18-voice-cloning-eval-notebook' and extra == 'extra-18-voice-cloning-eval-qwen3')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/23/00/f915eaa75326f4209941179c2b93ac477f2040e4aeff5bb21d16eb8058f9/pyloudnorm-0.2.0.tar.gz", hash = "sha256:8bf597658ea4e1975c275adf490f6deb5369ea409f2901f939915efa4b681b16", size = 14037, upload-time = "2026-01-04T11:43:35.265Z" }
 wheels = [
@@ -6747,6 +6747,7 @@ dependencies = [
 eval = [
     { name = "jiwer" },
     { name = "openai-whisper" },
+    { name = "pyloudnorm" },
     { name = "speechbrain" },
     { name = "torch" },
     { name = "torchaudio" },
@@ -6794,6 +6795,7 @@ requires-dist = [
     { name = "pedalboard", specifier = ">=0.8.0" },
     { name = "plotly", marker = "extra == 'notebook'", specifier = ">=5.0.0" },
     { name = "pydub", specifier = ">=0.25.1" },
+    { name = "pyloudnorm", marker = "extra == 'eval'", specifier = ">=0.1.0" },
     { name = "pyloudnorm", marker = "extra == 'notebook'", specifier = ">=0.1.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "qwen-tts", marker = "extra == 'qwen3'", specifier = ">=0.1.0" },

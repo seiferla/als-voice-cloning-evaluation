@@ -21,6 +21,12 @@ uv run python evaluation/run_eval.py
 
 ## Evaluation Pipeline
 
+Two halves. The **objective** part (SIM, WER, RTF, TTFA) runs unattended. The
+**subjective** part (N-MOS, Turing test) needs human listeners — see
+[Subjective evaluation](#subjective-evaluation-n-mos--turing-test) below.
+
+### Objective metrics
+
 1. **Prepare testset** — edit `evaluation/testset.json`:
    ```json
    {
@@ -53,6 +59,111 @@ uv run python evaluation/run_eval.py
    - `results_1.csv` — per-text metrics (SIM, WER, latency, RTF)
    - Model subdirectories with generated audio files
 
+## Subjective evaluation (N-MOS + Turing test)
+
+Runs on the audio the objective pipeline already produced. Designed for one
+operator working through many raters in person: you play the samples, the rater
+tells you the score, you click it, and the results are saved locally.
+
+### Step 1 — Screen the samples (once)
+
+```bash
+uv sync --extra eval                        # needs pyloudnorm for BS.1770 loudness
+uv run python evaluation/qc_samples.py
+```
+
+Measures every candidate sample (duration, loudness, peak, silence ratio,
+clipping) into `evaluation/results/qc_report.csv` and flags the broken ones.
+It writes `evaluation/results/exclusions.json`, pre-filled with **technical
+failures only**:
+
+- `quiet` / `near_silent` / `clipping` → pre-filled for exclusion
+- `duration_off` / `silence_heavy` → **not** excluded, only a shortlist to listen
+  to. These usually mean the model just speaks slower or pauses more, which is a
+  real property of the voice that the raters should judge.
+
+**Listen to every flagged sample, then edit `exclusions.json`.** Exclude only
+actual synthesis failures — never because something "sounds bad", since that is
+exactly what you are measuring. The file is your written record of what was
+removed and why.
+
+### Step 2 — Build the test (once, then never again)
+
+```bash
+uv run python evaluation/prepare_listening_test.py
+```
+
+Produces `evaluation/results/listening_test/`:
+
+| File | What it is |
+|---|---|
+| `index.html` | the rating page |
+| `samples/` | anonymized audio, no model name in any filename |
+| `key.json` | **hidden** mapping sample → model. Never show this to a rater |
+| `stimuli.csv` | measured level/gain per stimulus, for the write-up |
+| `share.zip` | `index.html` + `samples/` only, for remote raters |
+
+Every stimulus is resampled to 24 kHz and loudness-normalized to −23 LUFS, so
+neither level nor bandwidth can stand in for quality. This matters: qwen3 renders
+~7 dB quieter than the other models, which would have cost it naturalness points
+for the wrong reason, and voxtral clones were louder than the real recordings,
+which leaked a "the louder one is fake" cue into the Turing test.
+
+⚠️ **Do not run this script again once you have started collecting ratings.** It
+reshuffles the samples and rewrites `key.json`, which silently desyncs the answers
+you already have. It refuses to run if `responses/` has data (`--force` overrides).
+
+Also: **don't open `key.json` yourself** before the sessions. You run them, and
+knowing which side is real can leak through how you react.
+
+### Step 3 — Run the sessions
+
+```bash
+uv run python evaluation/listening_test_server.py
+```
+
+Leave it running for the whole study, then for each rater:
+
+1. Open <http://localhost:8765>
+2. Enter name/abbreviation, age, and whether they know the person personally
+3. Play each sample, the rater says the score, you click it
+   - Part 1: naturalness 1–5 per sample (N-MOS)
+   - Part 2: per pair, which of A/B is the real voice (Turing test)
+4. Click **"Ergebnisse speichern"** → appended to
+   `responses/all_ratings.jsonl` and the summary CSVs update immediately
+5. Click **"Für nächste Person zurücksetzen"** → empty form for the next rater
+
+The **stimulus set is the same for everyone**, but the page **randomizes the
+order and the A/B sides per rater**. So you can spread the 30 raters over as many
+days as you like without losing comparability — just keep the playback conditions
+constant (same headphones, same volume) and avoid scheduling all the people who
+know the speaker on one day and all strangers on another.
+
+### Step 4 — Read the results
+
+Updated automatically after every rater, or on demand:
+
+```bash
+uv run python evaluation/analyze_listening_test.py
+```
+
+- `listening_test/nmos_summary.csv` — mean/std naturalness per model
+- `listening_test/turing_summary.csv` — fooling rate per model with 95% CI
+  against the 0.50 chance level, split by whether the rater knows the speaker
+  (familiarity is a strong confound: people who know the voice detect clones
+  much more easily)
+
+For the final write-up, prefer a mixed-effects model
+(`rating ~ model + (1|rater) + (1|text)`) over the plain means — the reported CI
+treats each answer as independent, which it is not.
+
+### Remote raters
+
+Share `share.zip` via a cloud link (~170 MB, too big for email). They unzip it,
+open `index.html`, rate, and send back the downloaded `ratings_*.json`. Drop that
+file into `responses/` — the analysis picks it up alongside the server-collected
+ones.
+
 ## Models Tested
 
 | Model | Type | Status |
@@ -71,9 +182,14 @@ All three write **WAV** so SIM/WER/N-MOS compare like with like:
 
 ## Metrics
 
-**Quality Metrics:**
+**Quality Metrics (objective):**
 - **SIM** — Speaker Similarity (cosine distance of ECAPA embeddings) — how much does it sound like the reference?
 - **WER** — Word Error Rate (via Whisper ASR) — is the text intelligible?
+
+**Quality Metrics (subjective, human raters):**
+- **N-MOS** — Naturalness Mean Opinion Score, 1–5 per sample
+- **Turing test** — fooling rate: how often a clone is mistaken for the real
+  recording (0.50 = indistinguishable from guessing)
 
 **Performance Metrics:**
 - **Latency** — total API response time
@@ -94,12 +210,18 @@ src/myecho/
 │   ├── voxtral.py              # Mistral voice cloning
 │   └── qwen3.py                # Alibaba DashScope voice cloning
 └── evaluation/
-    └── metrics.py              # SIM (ECAPA), WER (Whisper), ASR transcription
+    ├── metrics.py              # SIM (ECAPA), WER (Whisper), ASR transcription
+    └── audio_qc.py             # BS.1770 loudness measurement + normalization
 
 evaluation/
-├── testset.json                 # Input: reference audio + texts to evaluate
-├── run_eval.py                  # Main evaluation pipeline
-└── results/                     # Output: CSV + generated audio
+├── testset.json                       # Input: reference audio + texts to evaluate
+├── run_eval.py                        # Objective pipeline (SIM/WER/RTF/TTFA)
+├── qc_samples.py                      # Screen samples, flag technical failures
+├── prepare_listening_test.py          # Build the blinded listening test
+├── listening_test_template.html       # Rating page (order randomized per rater)
+├── listening_test_server.py           # Serve it + auto-save each rater's result
+├── analyze_listening_test.py          # N-MOS + Turing test results
+└── results/                           # Output: CSV, generated audio, listening test
 
 notebooks/                       # Jupyter for preprocessing, analysis, visualization
 data/                            # Audio files (gitignored)
@@ -115,6 +237,10 @@ data/                            # Audio files (gitignored)
 **Evaluation** (uv sync --extra eval):
 - Metrics: `jiwer` (WER), `openai-whisper` (ASR), `speechbrain` (ECAPA embeddings)
 - Audio I/O: `torch`, `torchaudio`
+- Listening test: `pyloudnorm` (BS.1770 loudness normalization)
+
+The listening test itself needs nothing else — the rating page is plain
+HTML/JS and the server uses only the Python standard library.
 
 **Notebooks** (uv sync --extra notebook):
 - Jupyter, matplotlib, plotly, pandas, scikit-learn, transformers
@@ -198,5 +324,9 @@ QWEN3_VOICE_ID=...
 - A Qwen3 voice enrolled against `qwen3-tts-vc-realtime-*` works **only** over
   `/api-ws/v1/realtime`, not over the older `tts_v2` path. Enroll local files with
   `python qwen_voice_enroll.py create --audio ref.wav --name myvoice`
-- N-MOS and the Turing test are **not implemented** — they need a separate
-  listening-test setup
+- N-MOS and the Turing test are implemented as a local listening test — see
+  [Subjective evaluation](#subjective-evaluation-n-mos--turing-test)
+- Listening-test stimuli are loudness-normalized (−23 LUFS) and resampled to
+  24 kHz, because level and bandwidth differences between models otherwise show
+  up as fake quality differences. Native sample rate and measured loudness are
+  reported separately in `qc_report.csv` / `stimuli.csv`

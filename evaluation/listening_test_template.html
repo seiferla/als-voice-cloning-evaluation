@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>myEcho – Subjektiver Hörtest</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.5rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
+  p.hint { color: #555; font-size: .95rem; }
+  .item { border: 1px solid #ddd; border-radius: 8px; padding: .9rem 1rem; margin: .8rem 0; }
+  .item audio { width: 100%; margin-bottom: .5rem; }
+  .scale label, .choice label { margin-right: 1rem; font-size: .95rem; }
+  .pair { display: flex; gap: 1rem; }
+  .pair > div { flex: 1; }
+  .pair-label { font-weight: 600; margin-bottom: .2rem; }
+  #rater { padding: .4rem; width: 100%; box-sizing: border-box; }
+  #download { margin: 2rem 0; padding: .7rem 1.4rem; font-size: 1rem; cursor: pointer; }
+  #status { color: #555; font-size: .9rem; }
+</style>
+</head>
+<body>
+
+<h1>myEcho – Subjektiver Hörtest</h1>
+<p class="hint">
+  Danke fürs Mithören! Teil 1 bewertet, wie natürlich einzelne Aufnahmen klingen.
+  Teil 2 fragt, welche von zwei Aufnahmen die echte (nicht geklonte) Stimme ist.
+  Am Ende auf "Ergebnisse herunterladen" klicken und die Datei im Team teilen.
+</p>
+
+<label for="rater">Dein Name / Kürzel:</label>
+<input id="rater" type="text" placeholder="z.B. Lars">
+
+<label for="rater-age">Dein Alter:</label>
+<input id="rater-age" type="number" min="1" max="120" placeholder="z.B. 34">
+
+<p>Kennst du die Person, deren Stimme geklont wurde, persönlich (z.B. Familie/Freunde)?</p>
+<div class="choice">
+  <label><input type="radio" name="rater-familiar" value="yes"> Ja</label>
+  <label><input type="radio" name="rater-familiar" value="no"> Nein</label>
+</div>
+
+<h2>Teil 1 – Natürlichkeit (1 = sehr unnatürlich, 5 = klingt wie ein echter Mensch)</h2>
+<div id="nmos-list"></div>
+
+<h2>Teil 2 – Welche Aufnahme ist echt?</h2>
+<p class="hint">Pro Paar: A und B anhören, dann die Aufnahme wählen, die du für die echte Originalstimme hältst.</p>
+<div id="turing-list"></div>
+
+<button id="submit">Ergebnisse speichern</button>
+<p id="status"></p>
+
+<script>
+const MANIFEST = __MANIFEST_JSON__;
+
+// The stimulus set is fixed for the whole study, but order is randomized per
+// rater: with a fixed order, scale calibration at the start, fatigue at the
+// end and contrast between neighbours would all hit the same items every
+// time, turning those effects into a systematic bias instead of noise.
+// The A/B sides are flipped per rater too, so no side bias can build up and
+// the operator can't learn "this pair's real one is on the left" over many
+// sessions. The page never knows WHICH file is real - it only swaps the two
+// slots and records that it did, so the analysis can undo it.
+function shuffled(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const NMOS_ORDER = shuffled(MANIFEST.nmos);
+const TURING_ORDER = shuffled(MANIFEST.turing).map(p => ({ ...p, swapped: Math.random() < 0.5 }));
+
+const nmosList = document.getElementById("nmos-list");
+NMOS_ORDER.forEach((item, idx) => {
+  const div = document.createElement("div");
+  div.className = "item";
+  div.innerHTML = `
+    <div class="pair-label">${idx + 1} / ${NMOS_ORDER.length}</div>
+    <audio controls src="${item.file}"></audio>
+    <div class="scale" data-nmos-id="${item.id}">
+      ${[1,2,3,4,5].map(n => `<label><input type="radio" name="nmos-${item.id}" value="${n}"> ${n}</label>`).join("")}
+    </div>`;
+  nmosList.appendChild(div);
+});
+
+const turingList = document.getElementById("turing-list");
+TURING_ORDER.forEach((pair, idx) => {
+  const slotA = pair.swapped ? pair.file_b : pair.file_a;
+  const slotB = pair.swapped ? pair.file_a : pair.file_b;
+  const div = document.createElement("div");
+  div.className = "item";
+  div.innerHTML = `
+    <div class="pair-label">${idx + 1} / ${TURING_ORDER.length}</div>
+    <div class="pair">
+      <div><div class="pair-label">A</div><audio controls src="${slotA}"></audio></div>
+      <div><div class="pair-label">B</div><audio controls src="${slotB}"></audio></div>
+    </div>
+    <div class="choice" data-turing-id="${pair.id}">
+      <label><input type="radio" name="turing-${pair.id}" value="A"> A ist die echte Stimme</label>
+      <label><input type="radio" name="turing-${pair.id}" value="B"> B ist die echte Stimme</label>
+    </div>`;
+  turingList.appendChild(div);
+});
+
+async function submitPayload() {
+  const nmos = {};
+  for (const item of MANIFEST.nmos) {
+    const checked = document.querySelector(`input[name="nmos-${item.id}"]:checked`);
+    nmos[item.id] = checked ? Number(checked.value) : null;
+  }
+  const turing = {};
+  for (const pair of MANIFEST.turing) {
+    const checked = document.querySelector(`input[name="turing-${pair.id}"]:checked`);
+    turing[pair.id] = checked ? checked.value : null;
+  }
+
+  const missing = Object.values(nmos).filter(v => v === null).length
+    + Object.values(turing).filter(v => v === null).length;
+
+  const rater = document.getElementById("rater").value.trim() || "anonym";
+  const ageValue = document.getElementById("rater-age").value;
+  const familiarChecked = document.querySelector('input[name="rater-familiar"]:checked');
+  const payload = {
+    rater,
+    age: ageValue ? Number(ageValue) : null,
+    knows_person: familiarChecked ? familiarChecked.value : null,
+    timestamp: new Date().toISOString(),
+    nmos,
+    turing,
+    // What this rater actually saw. turing_swapped is required to score the
+    // Turing answers (the key stores the unswapped side); the orders let you
+    // check afterwards whether position in the session affected ratings.
+    presented: {
+      nmos_order: NMOS_ORDER.map(i => i.id),
+      turing_order: TURING_ORDER.map(p => p.id),
+      turing_swapped: Object.fromEntries(TURING_ORDER.map(p => [p.id, p.swapped])),
+    },
+  };
+
+  const statusEl = document.getElementById("status");
+  const btn = document.getElementById("submit");
+
+  try {
+    const res = await fetch("/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`server responded ${res.status}`);
+
+    statusEl.textContent = missing > 0
+      ? `Gespeichert – aber ${missing} Antworten fehlen noch.`
+      : "Gespeichert – danke! Bereit für die nächste Person.";
+    btn.textContent = "Für nächste Person zurücksetzen";
+    btn.onclick = () => location.reload();
+  } catch (e) {
+    // No listening_test_server.py running (e.g. index.html opened directly
+    // as a file) - fall back to a manual download.
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `ratings_${rater}_${Date.now()}.json`;
+    a.click();
+    statusEl.textContent = "Kein Server erreichbar – stattdessen als Datei heruntergeladen. Bitte manuell in responses/ legen.";
+  }
+}
+
+document.getElementById("submit").addEventListener("click", submitPayload);
+</script>
+
+</body>
+</html>
