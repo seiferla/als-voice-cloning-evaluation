@@ -50,7 +50,7 @@ uv run python evaluation/run_eval.py
    ```
 
 3. **Results** — saved to `evaluation/results/`:
-   - `results.csv` — per-text metrics (SIM, WER, latency, RTF)
+   - `results_1.csv` — per-text metrics (SIM, WER, latency, RTF)
    - Model subdirectories with generated audio files
 
 ## Models Tested

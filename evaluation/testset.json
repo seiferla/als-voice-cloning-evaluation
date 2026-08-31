@@ -1,21 +1,21 @@
 {
   "_comment": [
-    "One entry per case. 'reference_audio' is the SIM reference - ideally a",
-    "held-out recording of the same speaker, NOT the file used for cloning.",
-    "The *_voice_id fields are optional: without them the runner falls back",
-    "to S2PRO_REFERENCE_ID / VOXTRAL_VOICE_ID / QWEN3_VOICE_ID from .env."
+    "'reference_audio' is the SIM reference: a HELD-OUT recording, i.e. not the",
+    "file the voices were cloned from.",
+    "'texts_file' points to a JSON file with {\"texts\": [{\"text\": \"...\"}, ...]}.",
+    "Real/personal texts live under data/ (gitignored) rather than inline here,",
+    "since this testset.json is a tracked, already-pushed file.",
+    "The *_voice_id fields are optional: without them the runner falls back to",
+    "S2PRO_REFERENCE_ID / VOXTRAL_VOICE_ID / QWEN3_VOICE_ID from .env."
   ],
   "cases": [
     {
-      "name": "REPLACE_WITH_CASE_NAME",
-      "reference_audio": "data/wav/REPLACE_WITH_REFERENCE_AUDIO.wav",
+      "name": "case_2021_07",
+      "reference_audio": "data/DeepFilterNet/AUDIO-2021-08-02-09-44-50.wav",
       "s2pro_reference_id": null,
       "voxtral_voice_id": null,
       "qwen3_voice_id": null,
-      "texts": [
-        "Ersten Testsatz hier einfügen.",
-        "Zweiten Testsatz hier einfügen."
-      ]
+      "texts_file": "data/eval_texts.json"
     }
   ]
 }

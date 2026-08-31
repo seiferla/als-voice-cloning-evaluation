@@ -89,6 +89,9 @@ def extract_embedding(audio_path):
     """Speaker embedding (ECAPA-TDNN) for SIM comparison."""
     global _classifier
     try:
+
+        import soundfile as sf
+        import torch
         import torchaudio
         from speechbrain.inference import EncoderClassifier
     except ImportError:
@@ -97,7 +100,12 @@ def extract_embedding(audio_path):
     if _classifier is None:
         _classifier = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb")
 
-    signal, sr = torchaudio.load(str(audio_path))
+    # soundfile instead of torchaudio.load(): recent torchaudio versions need
+    # torchcodec/FFmpeg just to read a file, which isn't installed here.
+    data, sr = sf.read(str(audio_path), dtype="float32", always_2d=True)
+    signal = torch.from_numpy(data.T)  # (channels, samples)
+    if signal.shape[0] > 1:
+        signal = signal.mean(dim=0, keepdim=True)
     if sr != 16000:
         signal = torchaudio.functional.resample(signal, sr, 16000)
 
