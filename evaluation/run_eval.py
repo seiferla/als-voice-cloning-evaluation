@@ -9,6 +9,11 @@ reference audio + texts to synthesize).
 Voice IDs come from .env by default (S2PRO_REFERENCE_ID, VOXTRAL_VOICE_ID,
 QWEN3_VOICE_ID) and can be overridden per case in testset.json. A model whose
 voice ID is missing is skipped, so a partial run is still possible.
+
+A case's texts come from either an inline "texts" list of strings, or a
+"texts_file" pointing to a JSON file with {"texts": [{"id": ..., "text": ...}, ...]}.
+Use texts_file for real/personal texts so they can live under data/ (gitignored)
+instead of in this tracked testset.json.
 """
 
 import asyncio
@@ -52,6 +57,21 @@ def is_configured(value):
     return not any(p in value for p in PLACEHOLDERS)
 
 
+def load_texts(case):
+    """Resolve a case's texts to [{"id": ..., "text": ...}, ...].
+
+    Either inline "texts" (list of strings, id = index) or "texts_file"
+    (a JSON file with {"texts": [{"id": ..., "text": ...}, ...]}).
+    """
+    if "texts_file" in case:
+        texts_path = Path(case["texts_file"])
+        with open(texts_path, encoding="utf-8") as f:
+            data = json.load(f)
+        return [{"id": t.get("id", str(i)), "text": t["text"]} for i, t in enumerate(data["texts"])]
+
+    return [{"id": str(i), "text": text} for i, text in enumerate(case["texts"])]
+
+
 def build_models(case):
     """Resolve which models are runnable for this case: [(name, model), ...]."""
     models = []
@@ -81,12 +101,13 @@ def build_models(case):
 
 async def run_model(name, model, texts, ref_embedding, out_dir):
     rows = []
-    for i, text in enumerate(texts):
-        output_path = out_dir / f"{i:02d}.{AUDIO_EXT}"
+    for i, entry in enumerate(texts):
+        text_id, text = entry["id"], entry["text"]
+        output_path = out_dir / f"{i:02d}_{text_id}.{AUDIO_EXT}"
         try:
             result = await model.synthesize(text, output_path=output_path)
         except Exception as e:
-            print(f"    [{name}] text {i} SYNTHESIS FAILED: {type(e).__name__}: {e}")
+            print(f"    [{name}] {text_id} SYNTHESIS FAILED: {type(e).__name__}: {e}")
             continue
 
         try:
@@ -95,13 +116,13 @@ async def run_model(name, model, texts, ref_embedding, out_dir):
             asr_text = transcribe(output_path)
             wer_score = wer(text, asr_text)
         except Exception as e:
-            print(f"    [{name}] text {i} SCORING FAILED: {type(e).__name__}: {e}")
+            print(f"    [{name}] {text_id} SCORING FAILED: {type(e).__name__}: {e}")
             continue
 
         m = result["metrics"]
         rows.append({
             "model": name,
-            "text_id": i,
+            "text_id": text_id,
             "sim": round(sim_score, 4),
             "wer": round(wer_score, 4),
             "latency": m.get("latency"),
@@ -111,7 +132,7 @@ async def run_model(name, model, texts, ref_embedding, out_dir):
             "connect_s": m.get("connect_s"),
             "audio_file": str(output_path),
         })
-        print(f"    [{name}] {i}: SIM={sim_score:.3f}  WER={wer_score:.3f}  RTF={_fmt(m.get('rtf'))}")
+        print(f"    [{name}] {text_id}: SIM={sim_score:.3f}  WER={wer_score:.3f}  RTF={_fmt(m.get('rtf'))}")
 
     return rows
 
@@ -122,7 +143,7 @@ def _fmt(value, digits=3):
 
 async def run_case(case):
     name = case["name"]
-    texts = case["texts"]
+    texts = load_texts(case)
     reference_audio = case["reference_audio"]
 
     print(f"\n=== Case: {name} ===")
@@ -158,7 +179,7 @@ async def main():
         print("\nNo results produced.")
         return
 
-    csv_path = RESULTS_DIR / "results.csv"
+    csv_path = RESULTS_DIR / "results_1.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writeheader()
