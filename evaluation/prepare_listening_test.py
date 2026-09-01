@@ -208,35 +208,34 @@ def dropped_texts(excluded, keep_unbalanced):
     return {text_id for _, text_id in excluded}
 
 
-def usable_texts(texts, excluded, skip_texts, spans):
-    """Texts that every condition (all models + REAL) can render."""
-    out = []
-    for entry in texts:
-        text_id = entry["id"]
-        if text_id in skip_texts:
-            continue
-        if f"{REAL}/{text_id}" not in spans:
-            continue
-        if any((model, text_id) in excluded for model, _ in excluded):
-            pass
-        out.append(entry)
-    return out
+def build_items(case_dir, conditions, texts, spans, index_of, excluded=()):
+    """One stimulus per (condition, text): {"cond", "text_id", "src", "span"}.
 
-
-def build_items(case_dir, conditions, texts, spans, index_of):
-    """One stimulus per (condition, text): {"cond", "text_id", "src", "span"}."""
+    A condition with no located span for a text is skipped rather than looked up
+    blindly. With the default balanced design that case never arises - the text
+    is already dropped for everyone - but with "keep_unbalanced": true it does,
+    and a KeyError in the middle of building a frozen stimulus set is the worst
+    possible time to find out.
+    """
     items = []
     for entry in texts:
         text_id = entry["id"]
         for cond in conditions:
+            if (cond, text_id) in excluded:
+                continue
+            span = spans.get(f"{cond}/{text_id}")
+            if span is None:
+                print(f"  skip {cond}/{text_id}: no located excerpt")
+                continue
             if cond == REAL:
                 src = real_audio_path(entry["source_audio"])
             else:
                 src = clone_audio_path(case_dir, cond, index_of[text_id], text_id)
-            if not src.exists():
+            if src is None or not src.exists():
+                print(f"  skip {cond}/{text_id}: audio file missing")
                 continue
             items.append({"cond": cond, "text_id": text_id, "src": src,
-                          "span": spans[f"{cond}/{text_id}"]})
+                          "span": span})
     return items
 
 
@@ -289,7 +288,7 @@ def training_items(case_dir, conditions, texts, skip_texts, spans, index_of, n=N
             if not src.exists():
                 continue
             picked.append({"cond": cond, "text_id": entry["id"], "src": src,
-                           "span": spans[f"{cond}/{entry['id']}"]})
+                           "span": spans[f"{cond}/{entry['id']}"]})  # checked above
             if cond != REAL:
                 used_models.add(cond)
     return picked
@@ -371,7 +370,7 @@ def main():
         raise SystemExit(f"Only {len(kept)} usable text(s) left - too few for a test.")
 
     plans = build_plans(kept, models)
-    items = build_items(case_dir, conditions, kept, spans, index_of)
+    items = build_items(case_dir, conditions, kept, spans, index_of, excluded)
     training = training_items(case_dir, conditions, texts, skip_texts, spans, index_of)
 
     # --- render every stimulus under an opaque name -------------------------

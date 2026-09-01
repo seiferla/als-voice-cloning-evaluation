@@ -6,7 +6,12 @@
     "Real/personal texts live under data/ (gitignored) rather than inline here,",
     "since this testset.json is a tracked, already-pushed file.",
     "The *_voice_id fields are optional: without them the runner falls back to",
-    "S2PRO_REFERENCE_ID / VOXTRAL_VOICE_ID / QWEN3_VOICE_ID from .env."
+    "S2PRO_REFERENCE_ID / VOXTRAL_VOICE_ID / QWEN3_VOICE_ID from .env.",
+    "'impostor_audio' is a file or glob of a DIFFERENT speaker. It gives SIM its",
+    "lower bound: without it, a similarity of 0.60 cannot be told apart from",
+    "'this metric returns 0.60 for any two German voices'. A handful of Common",
+    "Voice DE clips is enough. Measured upper bound on this material (the same",
+    "speaker across two real recordings): SIM median 0.79, range 0.67-0.86."
   ],
   "cases": [
     {
@@ -15,7 +20,8 @@
       "s2pro_reference_id": null,
       "voxtral_voice_id": null,
       "qwen3_voice_id": null,
-      "texts_file": "data/eval_texts.json"
+      "texts_file": "data/eval_texts.json",
+      "impostor_audio": null
     }
   ]
 }

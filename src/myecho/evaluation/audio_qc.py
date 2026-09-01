@@ -89,18 +89,29 @@ def _frame_db(x, sr):
 
 
 def speech_and_pause_level(x, sr):
-    """(speech_dbfs, pause_dbfs) as the medians of the active and silent frames.
+    """(speech_dbfs, pause_dbfs) - the level of the speech and of the gaps.
 
     Medians, not means: one loud breath or one click in an otherwise silent gap
     should not decide what "the floor" of a stimulus is.
 
-    pause_dbfs is None when the stimulus has no silent frame at all - some
-    renders run without a single measurable pause, and that is not an error.
+    Some renders have no frame below the silence threshold at all - either they
+    never stop speaking, or their noise floor is itself above the threshold. In
+    that case the quiet tail of the frame distribution is used instead. Falling
+    back to "unknown" would be worse than a rough estimate: the caller would
+    then treat the floor as silent and add noise to a stimulus that is already
+    noisy, which is the opposite of matching it.
+
+    pause_dbfs is None only for a signal with no measurable content at all.
     """
     frame_db = _frame_db(x, sr)
     active = frame_db > SILENCE_THRESHOLD_DBFS
-    speech = float(np.median(frame_db[active])) if active.any() else None
-    pause = float(np.median(frame_db[~active])) if (~active).sum() >= 3 else None
+    if not active.any():
+        return None, None
+    speech = float(np.median(frame_db[active]))
+    if (~active).sum() >= 3:
+        pause = float(np.median(frame_db[~active]))
+    else:
+        pause = float(np.percentile(frame_db, 10))
     return speech, pause
 
 
@@ -133,16 +144,16 @@ def match_noise_floor(x, sr, target_snr_db=TARGET_PAUSE_SNR_DB, seed=0):
     speech, pause = speech_and_pause_level(x, sr)
     info = {"pause_snr_before_db": None, "pause_snr_after_db": None,
             "noise_added_dbfs": None, "raised": False}
-    if speech is None:
+    if speech is None or pause is None:
         return x, info
 
     target_floor_db = speech - target_snr_db
-    info["pause_snr_before_db"] = round(speech - pause, 2) if pause is not None else None
+    info["pause_snr_before_db"] = round(speech - pause, 2)
 
     # Noise and signal are uncorrelated, so their powers add: to reach the
     # target floor from an existing one, add the difference in power, not the
     # difference in level.
-    have = 10.0 ** (pause / 10.0) if pause is not None else 0.0
+    have = 10.0 ** (pause / 10.0)
     want = 10.0 ** (target_floor_db / 10.0)
     if want <= have:
         info["pause_snr_after_db"] = info["pause_snr_before_db"]
@@ -152,10 +163,11 @@ def match_noise_floor(x, sr, target_snr_db=TARGET_PAUSE_SNR_DB, seed=0):
     rng = np.random.default_rng(seed)
     y = (x + noise_rms * _shaped_noise(len(x), rng)).astype(np.float32)
 
-    _, pause_after = speech_and_pause_level(y, sr)
+    speech_after, pause_after = speech_and_pause_level(y, sr)
     info.update({
         "noise_added_dbfs": round(_db(noise_rms), 2),
-        "pause_snr_after_db": round(speech - pause_after, 2) if pause_after is not None else None,
+        "pause_snr_after_db": (round(speech_after - pause_after, 2)
+                               if pause_after is not None else None),
         "raised": True,
     })
     return y, info

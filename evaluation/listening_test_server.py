@@ -1,27 +1,33 @@
 """Local server for running the listening test in person, back-to-back with
-many raters on one machine: no manual download/move step, every submission
-is saved and the summary CSVs are updated automatically.
+many raters on one machine: no manual download/move step, every submission is
+saved and the summaries are updated automatically.
 
 Usage:
     uv run python evaluation/prepare_listening_test.py   # build the test once
     uv run python evaluation/listening_test_server.py    # start the server
 
-Then, for each rater in turn: open http://localhost:8765 in a browser, let
-them rate, click "Ergebnisse speichern", click "Für nächste Person
-zurücksetzen" (reloads the page with empty answers) and hand it to the next
-person. Keep the terminal running for the whole session; stop with Ctrl+C.
+Then, for each rater in turn: open http://localhost:8765 in a browser, hand them
+the keyboard - they enter their own scores, you do not - and when they click
+"Ergebnisse speichern" the answers are appended to
+evaluation/results/listening_test/responses/all_ratings.jsonl. The button then
+turns into a reset button for the next person. Keep the terminal running for the
+whole study; stop with Ctrl+C.
 
-Each submission is appended as one line to
-evaluation/results/listening_test/responses/all_ratings.jsonl, and
-nmos_summary.csv / turing_summary.csv are regenerated from everything
-collected so far - so they're always current, no need to re-run
-analyze_listening_test.py by hand.
+The page draws one of the prepared rater plans at random, so you do not have to
+assign anything. To force a plan (e.g. to even out the last few sessions), open
+http://localhost:8765/?plan=2.
+
+Summaries are recomputed after every submission in a background thread. The
+interval estimates use a bootstrap that takes a few seconds, and no rater should
+sit in front of a spinning browser tab for that - so the answer is sent first
+and the CSVs are updated right after.
 """
 
 import errno
 import functools
 import http.server
 import json
+import threading
 from pathlib import Path
 
 from analyze_listening_test import load_key, load_responses, write_summaries
@@ -29,6 +35,19 @@ from analyze_listening_test import load_key, load_responses, write_summaries
 OUT_DIR = Path(__file__).parent / "results" / "listening_test"
 RESPONSES_DIR = OUT_DIR / "responses"
 PORT = 8765
+
+# One writer at a time: two submissions arriving close together would otherwise
+# recompute and rewrite the same CSVs concurrently.
+_summary_lock = threading.Lock()
+
+
+def update_summaries():
+    with _summary_lock:
+        try:
+            write_summaries(load_key(), load_responses(), quiet=True)
+            print("  summaries updated")
+        except Exception as e:
+            print(f"  (summary update failed: {type(e).__name__}: {e})")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -47,17 +66,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
         with open(RESPONSES_DIR / "all_ratings.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        print(f"\nSaved rating from '{payload.get('rater', 'anonym')}'")
 
-        try:
-            write_summaries(load_key(), load_responses())
-        except Exception as e:
-            print(f"  (summary update failed: {e})")
+        answered = sum(1 for r in payload.get("nmos", []) if r.get("rating") is not None)
+        chosen = sum(1 for t in payload.get("turing", []) if t.get("choice") is not None)
+        print(f"\nSaved {payload.get('rater')} (plan {payload.get('plan_id')}): "
+              f"{answered} naturalness ratings, {chosen} pair answers")
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(b'{"status": "ok"}')
+
+        threading.Thread(target=update_summaries, daemon=True).start()
+
+    def end_headers(self):
+        # The stimulus set is rebuilt between studies and browsers happily serve
+        # a stale index.html or a stale sample from cache, which would silently
+        # desync a rater from key.json.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def log_message(self, format, *args):
         pass  # our own print()s are enough
@@ -98,7 +125,8 @@ def main():
 
     with httpd:
         print(f"\nListening test running at http://localhost:{port}")
-        print("Open that URL for each rater in turn. Ctrl+C to stop.")
+        print("Open that URL for each rater in turn. The rater enters their own")
+        print("scores. Ctrl+C to stop.")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

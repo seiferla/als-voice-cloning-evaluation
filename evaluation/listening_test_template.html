@@ -149,14 +149,39 @@ const PLAN = Number.isInteger(forced) && MANIFEST.plans[forced]
 const RATER_ID = "R-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 document.getElementById("rater-id").textContent = RATER_ID;
 
-// Part 1: the plan's items, shuffled, plus N_REPEATS of them shown twice. A
-// repeat is a separate row with its own slot id but the same stimulus id.
-const base = shuffled(PLAN.nmos);
-const repeatIds = base.slice(0, Math.min(N_REPEATS, base.length));
-const NMOS_ORDER = shuffled([
-  ...base.map((id, i) => ({ slot: `n${i}`, stimulus: id, repeat: false })),
-  ...repeatIds.map((id, i) => ({ slot: `r${i}`, stimulus: id, repeat: true })),
-]);
+// Part 1: the plan's items, shuffled, plus N_REPEATS of them shown a second
+// time. A repeat is a separate row with its own slot id but the same stimulus.
+//
+// The repeat must not land near its original. A rater who hears the same clip
+// again three items later still remembers the number they gave, so the two
+// ratings agree because of memory, not because the scale is stable - and the
+// reliability estimate comes out too good. Simulating the naive version (shuffle
+// everything together) gave 7 % of repeats back-to-back and 20 % within three
+// positions. So the originals are placed first and each repeat is then inserted
+// only into a position at least MIN_REPEAT_GAP away from it.
+const MIN_REPEAT_GAP = 6;
+
+function withSeparatedRepeats(ids, nRepeats, minGap) {
+  const rows = shuffled(ids).map((id, i) => ({ slot: `n${i}`, stimulus: id, repeat: false }));
+  const chosen = shuffled(ids).slice(0, Math.min(nRepeats, ids.length));
+
+  chosen.forEach((id, k) => {
+    const origin = rows.findIndex(r => r.stimulus === id && !r.repeat);
+    // Insertion points that keep the gap. Fall back to the far end of the list
+    // if the list is too short for the requested gap.
+    const spots = [];
+    for (let pos = 0; pos <= rows.length; pos++) {
+      if (Math.abs(pos - origin) >= minGap) spots.push(pos);
+    }
+    const pos = spots.length
+      ? spots[Math.floor(Math.random() * spots.length)]
+      : (origin < rows.length / 2 ? rows.length : 0);
+    rows.splice(pos, 0, { slot: `r${k}`, stimulus: id, repeat: true });
+  });
+  return rows;
+}
+
+const NMOS_ORDER = withSeparatedRepeats(PLAN.nmos, N_REPEATS, MIN_REPEAT_GAP);
 
 const TURING_ORDER = shuffled(PLAN.turing).map(p => ({ ...p, swapped: Math.random() < 0.5 }));
 
