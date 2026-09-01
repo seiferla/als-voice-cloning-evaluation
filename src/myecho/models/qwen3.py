@@ -83,8 +83,16 @@ class Qwen3TTS:
         self.language_type = language_type
         self._enrollment = VoiceEnrollmentService()
 
-    def create_voice(self, audio_url, language_hints=["de"], enable_preprocess=True):
+    def create_voice(self, audio_url, language_hints=None, enable_preprocess=False):
         """Create a custom voice from a publicly reachable audio URL.
+
+        enable_preprocess defaults to False, against the API's own default.
+        True runs DashScope's server-side denoising and normalization, which
+        sounds helpful for noisy source recordings - and it is, if you use one
+        service. In a comparison of three it means qwen3 is handed cleaner audio
+        than the other two, so a similarity difference can no longer be
+        attributed to the model. Do the preprocessing yourself instead, once, for
+        all three: evaluation/prepare_enrollment.py.
 
         NOTE: unlike the Mistral API, DashScope does not accept raw audio
         bytes here - the reference sample must already be hosted at a URL
@@ -95,8 +103,8 @@ class Qwen3TTS:
             target_model=self.model,
             prefix=self.voice_name,
             url=audio_url,
-            language_hints=language_hints,
-            enable_preprocess=enable_preprocess,  # denoising/normalization - useful given background noise in the source recordings
+            language_hints=language_hints if language_hints is not None else ["de"],
+            enable_preprocess=enable_preprocess,
         )
         return self.voice_id
 

@@ -118,7 +118,13 @@ per text — the reported run will use `--repeats 3`):
 | s2pro | 0.702 | 0.110 |
 | voxtral | 0.599 | 0.209 |
 
-Two things follow and will be stated in the report regardless of how the
+Paired by text with bootstrap intervals over texts and Bonferroni-adjusted
+verdicts (`analyze_objective.py`): the SIM differences between all three are
+detectable, but the **WER difference between qwen3 and s2pro is not**
+(−0.019, adjusted CI [−0.051, +0.014]). "qwen3 is more intelligible than s2pro"
+will therefore not be claimed.
+
+Two more things follow and will be stated in the report regardless of how the
 listening test turns out:
 
 - qwen3 and s2pro fall **inside** the range this metric returns for two
@@ -156,9 +162,17 @@ as they are; the mixed/bootstrap analysis handles unbalanced data.
 
 - **Naturalness.** Mean of per-rater means per condition. 95 % intervals from a
   two-way cluster bootstrap over raters **and** texts. Pairwise comparisons are
-  paired within rater, which removes each rater's scale offset.
+  paired within rater, which removes each rater's scale offset, and their verdict
+  uses a Bonferroni-adjusted level over the 6 comparisons.
+- **Interval validity and power, fixed in advance.** Coverage of that bootstrap
+  was checked by simulation on this design before any data existed: 0.99 against
+  a nominal 0.95, i.e. conservative. The design detects a 0.30 MOS difference
+  with 80 % power at 30 raters (`check_ci_coverage.py`). A smaller difference
+  will be reported as not detectable, not as absent.
 - **2AFC.** Fooling rate per system, same bootstrap, compared against 0.50.
-  Reported for all raters and split by whether the rater knows the speaker.
+  Reported for all raters and split by whether the rater knows the speaker, plus
+  the familiarity contrast itself with its own interval (H4 is a claim about the
+  difference, and two subgroup intervals are not a test of it).
 - **Confirmatory.** `rating ~ condition` with random intercepts for rater and
   text; `fooled ~ model` as a rater-clustered logit. The bootstrap is the
   headline number at this sample size.
@@ -176,9 +190,18 @@ as they are; the mixed/bootstrap analysis handles unbalanced data.
    preprocessing (`enable_preprocess=True`), voxtral raw bytes plus a hardcoded
    `gender` hint, s2pro was uploaded through a web UI. **The three systems did
    not get the same input**, which is an alternative explanation for the SIM
-   ranking. Re-enrolling all three from one identical, identically preprocessed
-   file is the single most valuable remaining fix.
-3. **A residual brightness cue.** After matching level and pause floor, one
+   ranking and the largest single threat to the conclusion. The code defaults are
+   now neutral and `evaluation/prepare_enrollment.py` produces one canonical
+   reference plus a manifest, but the results in §5 were produced under the old,
+   confounded enrollment. Either re-enroll and re-run, or state in the report
+   that the model ranking is confounded with the enrollment input.
+3. **Short stimuli hide long-form behaviour.** The excerpts sit at 32–71 % of
+   each render, so ~73 % of each render is never rated. Measured on the full
+   renders instead (`long_form.csv`): no system drifts away from the target voice
+   with length (r = −0.05, n = 48), but voxtral fades by up to −11.4 dB across one
+   utterance and all three speak faster than the person (2.7–3.0 vs 2.53
+   words/s). Subjective and long-form results must be reported together.
+4. **A residual brightness cue.** After matching level and pause floor, one
    feature still separates real from clone above the guessing baseline: energy in
    4–8 kHz (0.885 vs a 0.750 baseline, `cue_audit.csv`). All three systems render
    duller than the phone-recorded original. This was deliberately **not**
@@ -186,12 +209,12 @@ as they are; the mixed/bootstrap analysis handles unbalanced data.
    clones to reproduce the source timbre, and EQ-ing it would also erase what
    raters are supposed to hear. The 2AFC results must be read together with this
    number.
-4. **Spontaneous vs read speech.** The real side is spontaneous speech with
+5. **Spontaneous vs read speech.** The real side is spontaneous speech with
    hesitations; the clones read a transcript of it. Disfluencies are in the text,
    but the delivery differs, and that is part of what makes a clone detectable.
-5. **WER via whisper-small.** A German-finetuned model would be better; if it is
+6. **WER via whisper-small.** A German-finetuned model would be better; if it is
    swapped in, every WER number including the floor must be recomputed together.
-6. **The operator knows the study.** Sessions are run by the author. The rater
+7. **The operator knows the study.** Sessions are run by the author. The rater
    clicks, the key is not opened beforehand, and the A/B sides are re-flipped per
    rater, but this is not a blind experimenter.
 

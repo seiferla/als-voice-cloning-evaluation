@@ -32,6 +32,7 @@ uv run python evaluation/analyze_listening_test.py # 8. results
 Two more, neither of which needs raters or API access:
 
 ```bash
+uv run python evaluation/analyze_objective.py      # paired comparisons for SIM/WER
 uv run python evaluation/analyze_long_form.py      # stability of the FULL renders
 uv run python evaluation/check_ci_coverage.py      # does the reported CI cover? what can it detect?
 ```
@@ -139,6 +140,37 @@ Two conclusions that are invisible without the anchor row:
    0.18). Reading a transcript produces cleaner speech than speaking
    spontaneously into a phone. WER here measures distance from read speech, not
    intelligibility.
+
+### Comparisons, not just medians
+
+```bash
+uv run python evaluation/analyze_objective.py
+```
+
+`run_eval.py` prints medians. A median says what a system usually does; it does
+not say whether one system is better than another, which is what the report has
+to defend. This script makes every comparison **paired within text** — the same
+sentence rendered by two systems, which removes the fact that some sentences are
+simply harder for everyone — with intervals from a bootstrap over texts, because
+texts are what this study samples. Verdicts are Bonferroni-adjusted.
+
+On the current results it already changes a conclusion:
+
+| comparison | difference | adjusted CI | verdict |
+|---|---|---|---|
+| SIM qwen3 − s2pro | +0.043 | [+0.022, +0.067] | difference |
+| SIM s2pro − voxtral | +0.104 | [+0.076, +0.130] | difference |
+| **WER qwen3 − s2pro** | **−0.019** | **[−0.051, +0.014]** | **no difference detected** |
+| WER s2pro − voxtral | −0.099 | [−0.251, −0.001] | difference |
+
+So "qwen3 is more intelligible than s2pro" is not supported — that gap is inside
+the noise. And the SIM gap between them, while statistically detectable, sits
+entirely inside the 0.67–0.86 human-to-human range, so it is a difference the
+metric can resolve but not evidence that one clone is closer to the person.
+Statistical significance and practical meaning are separate questions and the
+report should answer both.
+
+Writes `objective_summary.csv` and `objective_pairwise.csv`.
 
 ### `service_rtf` is not RTF
 
@@ -480,10 +512,25 @@ Report both halves together: the listening test says how good ~10 s sounds, and
 | **Qwen3** | Alibaba DashScope | `/api-ws/v1/realtime` | WAV 24 kHz | ✓ |
 
 ⚠️ **The three were not enrolled from identical input** — qwen3 with server-side
-preprocessing, voxtral with raw bytes plus a hardcoded gender hint, s2pro through
-a web UI. That is an alternative explanation for the SIM ranking and the single
-most valuable remaining fix: re-enroll all three from one identical, identically
-preprocessed file and record the file, its sha256 and the parameters.
+preprocessing (`enable_preprocess=True`), voxtral with raw bytes plus a hardcoded
+`gender="female"` hint, s2pro through a web UI. A SIM difference could come from
+the model or from one model having been handed cleaner audio, and nothing in the
+results separates those. This is the single largest threat to the conclusion.
+
+Both provider defaults are now neutral in the code (`enable_preprocess=False`,
+no gender hint), so the confound cannot come back silently. To remove it from the
+results, re-enroll all three from one file:
+
+```bash
+uv run python evaluation/prepare_enrollment.py data/wav/<the-one-reference>.wav --seconds 30
+```
+
+That writes one canonical mono/24 kHz/loudness-normalized reference plus
+`data/enrollment/enrollment.json` with the source and output sha256, the exact
+parameters, and the per-provider checklist. It deliberately does not call the
+APIs — enrollment costs money, two of the three keep the audio, and s2pro has no
+enrollment API. Enroll, put the three new ids in `.env`, re-run `run_eval.py`,
+and cite the manifest hash in the report.
 
 ## Metrics
 
@@ -525,6 +572,8 @@ evaluation/
 ├── analyze_listening_test.py     # naturalness + 2AFC results
 ├── analyze_long_form.py          # stability of the full renders
 ├── check_ci_coverage.py          # CI coverage + power, by simulation
+├── prepare_enrollment.py         # one canonical enrollment file + manifest
+├── analyze_objective.py          # paired comparisons + CI for SIM/WER/latency
 └── results/                      # output (gitignored)
 
 tests/                            # pytest: uv run pytest
