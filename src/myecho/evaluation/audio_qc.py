@@ -16,11 +16,39 @@ Normalization only removes the gain confound. Genuine defects (gappy or
 breathy speech, artifacts) survive it and still get heard and rated, which is
 what we want. A file that cannot reach the target without clipping is
 reported, not silently rescued - see qc_samples.py.
+
+Level is not the only channel confound, and it was not the worst one. The real
+recordings are 2021 phone voice memos put through DeepFilterNet, the clones are
+generated clean. Measured on the first stimulus set, that left the pauses
+telling the rater the answer:
+
+    source   pause fraction   speech - pause floor
+    REAL     0.22             39.4 dB
+    s2pro    0.08             33.0 dB
+    voxtral  0.15             28.7 dB
+    qwen3    0.10             29.6 dB
+
+A single threshold on either column separates real from clone with 96 %
+accuracy, so a rater could win the Turing test on "which one has clean gaps"
+without ever judging the voice. And the cue is our own doing: denoising lifts
+the real recordings from 0.132 / 30.6 dB to 0.219 / 36.8 dB, i.e. the denoiser
+gives them digitally silent pauses that no TTS model produces.
+
+So every stimulus also gets its pause floor matched to one common value by
+adding shaped noise (never by removing any). After that the pause *structure* -
+how often and how long the voice stops - still differs, which is right: that is
+a property of the model that raters should hear. What is gone is the recording
+chain that only the real side went through.
 """
+
+import zlib
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 from scipy.signal import resample_poly
+
+from myecho.evaluation.excerpt import cut
 
 # EBU R128 target. Sits mid-range for this material, so most files need only
 # a small gain change and clipping stays unlikely.
@@ -34,6 +62,11 @@ SILENCE_THRESHOLD_DBFS = -50.0
 # Everything is resampled to this so audio bandwidth can't differ per system.
 COMMON_SR = 24000
 
+# Common pause floor for every stimulus, as speech level minus floor. Chosen
+# just under the quietest natural floor in this material (voxtral, 28.7 dB) so
+# matching only ever adds noise and never has to lift a stimulus much.
+TARGET_PAUSE_SNR_DB = 26.0
+
 _FRAME_S = 0.02
 
 
@@ -45,6 +78,87 @@ def load_mono(path):
 
 def _db(x):
     return 20.0 * np.log10(max(float(x), 1e-12))
+
+
+def _frame_db(x, sr):
+    """Per-frame RMS in dBFS, on 20 ms frames."""
+    frame = max(int(_FRAME_S * sr), 1)
+    frames = (x[: len(x) // frame * frame].reshape(-1, frame)
+              if len(x) >= frame else x.reshape(1, -1))
+    return np.array([_db(np.sqrt((f ** 2).mean())) for f in frames])
+
+
+def speech_and_pause_level(x, sr):
+    """(speech_dbfs, pause_dbfs) as the medians of the active and silent frames.
+
+    Medians, not means: one loud breath or one click in an otherwise silent gap
+    should not decide what "the floor" of a stimulus is.
+
+    pause_dbfs is None when the stimulus has no silent frame at all - some
+    renders run without a single measurable pause, and that is not an error.
+    """
+    frame_db = _frame_db(x, sr)
+    active = frame_db > SILENCE_THRESHOLD_DBFS
+    speech = float(np.median(frame_db[active])) if active.any() else None
+    pause = float(np.median(frame_db[~active])) if (~active).sum() >= 3 else None
+    return speech, pause
+
+
+def _shaped_noise(n, rng):
+    """Pink-ish noise (1/f amplitude), unit RMS.
+
+    White noise at this level reads as tape hiss and draws attention to itself;
+    1/f shaping sits closer to the room tone of the original recordings, so the
+    matched floor sounds like a recording rather than like an added defect.
+    """
+    spectrum = rng.standard_normal(n // 2 + 1) + 1j * rng.standard_normal(n // 2 + 1)
+    f = np.arange(len(spectrum))
+    spectrum[1:] /= np.sqrt(f[1:])
+    spectrum[0] = 0.0  # no DC
+    y = np.fft.irfft(spectrum, n).astype(np.float32)
+    rms = float(np.sqrt((y ** 2).mean()))
+    return y / rms if rms > 0 else y
+
+
+def match_noise_floor(x, sr, target_snr_db=TARGET_PAUSE_SNR_DB, seed=0):
+    """Raise the pause floor to a common speech-to-pause distance by adding noise.
+
+    Only ever adds. A stimulus whose floor already sits above the target keeps
+    it and is reported (`raised` False) - lowering a floor would mean denoising
+    one condition and not the others, which is the confound this removes.
+
+    Deterministic: the noise is drawn from a seed derived from the stimulus
+    name, so rebuilding the test yields byte-identical files.
+    """
+    speech, pause = speech_and_pause_level(x, sr)
+    info = {"pause_snr_before_db": None, "pause_snr_after_db": None,
+            "noise_added_dbfs": None, "raised": False}
+    if speech is None:
+        return x, info
+
+    target_floor_db = speech - target_snr_db
+    info["pause_snr_before_db"] = round(speech - pause, 2) if pause is not None else None
+
+    # Noise and signal are uncorrelated, so their powers add: to reach the
+    # target floor from an existing one, add the difference in power, not the
+    # difference in level.
+    have = 10.0 ** (pause / 10.0) if pause is not None else 0.0
+    want = 10.0 ** (target_floor_db / 10.0)
+    if want <= have:
+        info["pause_snr_after_db"] = info["pause_snr_before_db"]
+        return x, info
+
+    noise_rms = float(np.sqrt(want - have))
+    rng = np.random.default_rng(seed)
+    y = (x + noise_rms * _shaped_noise(len(x), rng)).astype(np.float32)
+
+    _, pause_after = speech_and_pause_level(y, sr)
+    info.update({
+        "noise_added_dbfs": round(_db(noise_rms), 2),
+        "pause_snr_after_db": round(speech - pause_after, 2) if pause_after is not None else None,
+        "raised": True,
+    })
+    return y, info
 
 
 def measure(x, sr):
@@ -61,9 +175,7 @@ def measure(x, sr):
     else:
         lufs = float("-inf")
 
-    frame = max(int(_FRAME_S * sr), 1)
-    frames = x[: len(x) // frame * frame].reshape(-1, frame) if len(x) >= frame else x.reshape(1, -1)
-    frame_db = np.array([_db(np.sqrt((f ** 2).mean())) for f in frames])
+    frame_db = _frame_db(x, sr)
     active = frame_db > SILENCE_THRESHOLD_DBFS
 
     return {
@@ -119,11 +231,35 @@ def normalize(x, sr, target_lufs=TARGET_LUFS, peak_ceiling_dbfs=PEAK_CEILING_DBF
     }
 
 
-def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COMMON_SR):
-    """Read, resample to the common rate, loudness-normalize, write."""
+def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COMMON_SR,
+                     span=None, target_pause_snr_db=TARGET_PAUSE_SNR_DB):
+    """Read, resample, cut a span, normalize the level, match the pause floor, write.
+
+    The order is deliberate:
+
+    1. resample - one audio bandwidth for every system
+    2. cut - BEFORE normalization, because BS.1770 integrated loudness is
+       measured over the whole signal; normalizing a 36 s render and then
+       cutting 10 s out of it would leave the excerpts at different levels
+       again, which is the confound this module exists to remove
+    3. normalize - one loudness for every system
+    4. match the pause floor - one recording chain for every system, so the
+       Turing test cannot be won on "the real one has clean gaps"
+
+    span is {"start", "end"} in seconds, from select_excerpts.py.
+    """
     x, sr = load_mono(src_path)
     x, sr = to_common_sr(x, sr, target_sr)
+    if span is not None:
+        x = cut(x, sr, span["start"], span["end"])
     y, info = normalize(x, sr, target_lufs)
+
+    # Seed from the destination name: same stimulus set in, same bytes out.
+    seed = zlib.crc32(Path(dest_path).name.encode("utf-8"))
+    y, noise_info = match_noise_floor(y, sr, target_pause_snr_db, seed=seed)
+    info.update(noise_info)
+
     sf.write(str(dest_path), y, sr, subtype="PCM_16")
     info["sample_rate"] = sr
+    info["duration_s"] = round(len(y) / sr, 2)
     return info

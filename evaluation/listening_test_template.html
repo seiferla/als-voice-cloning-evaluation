@@ -4,32 +4,50 @@
 <meta charset="utf-8">
 <title>myEcho – Subjektiver Hörtest</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.5; }
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.15rem; margin-top: 2.5rem; border-bottom: 1px solid #ccc; padding-bottom: .3rem; }
   p.hint { color: #555; font-size: .95rem; }
+  .box { background: #f6f6f6; border-radius: 8px; padding: .9rem 1.1rem; margin: 1rem 0; }
   .item { border: 1px solid #ddd; border-radius: 8px; padding: .9rem 1rem; margin: .8rem 0; }
+  .item.done { border-color: #bcd8bc; background: #fbfdfb; }
   .item audio { width: 100%; margin-bottom: .5rem; }
-  .scale label, .choice label { margin-right: 1rem; font-size: .95rem; }
+  .scale { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .scale label { flex: 1 1 8rem; border: 1px solid #ccc; border-radius: 6px; padding: .45rem .5rem; font-size: .9rem; cursor: pointer; }
+  .scale label:hover { background: #eef4ff; }
+  .choice label { margin-right: 1.2rem; font-size: .95rem; cursor: pointer; }
   .pair { display: flex; gap: 1rem; }
   .pair > div { flex: 1; }
   .pair-label { font-weight: 600; margin-bottom: .2rem; }
-  #rater { padding: .4rem; width: 100%; box-sizing: border-box; }
-  #download { margin: 2rem 0; padding: .7rem 1.4rem; font-size: 1rem; cursor: pointer; }
+  .counter { color: #666; font-size: .85rem; }
+  input[type=text], input[type=number] { padding: .4rem; width: 100%; box-sizing: border-box; }
+  button { padding: .7rem 1.4rem; font-size: 1rem; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: not-allowed; }
   #status { color: #555; font-size: .9rem; }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
 
 <h1>myEcho – Subjektiver Hörtest</h1>
-<p class="hint">
-  Danke fürs Mithören! Teil 1 bewertet, wie natürlich einzelne Aufnahmen klingen.
-  Teil 2 fragt, welche von zwei Aufnahmen die echte (nicht geklonte) Stimme ist.
-  Am Ende auf "Ergebnisse herunterladen" klicken und die Datei im Team teilen.
-</p>
 
-<label for="rater">Dein Name / Kürzel:</label>
-<input id="rater" type="text" placeholder="z.B. Lars">
+<div class="box">
+  <strong>Bitte vor dem Start lesen</strong>
+  <ul>
+    <li>Bitte <strong>Kopfhörer</strong> aufsetzen.</li>
+    <li>Die Lautstärke am Anfang einmal angenehm einstellen und danach <strong>nicht mehr ändern</strong>.</li>
+    <li>In einer ruhigen Umgebung hören.</li>
+    <li>Du klickst selbst. Es gibt keine richtigen oder falschen Antworten in Teil 1.</li>
+    <li>Der Test dauert ungefähr 20 Minuten. Du kannst jede Aufnahme mehrmals anhören.</li>
+  </ul>
+</div>
+
+<h2>Angaben zur Person</h2>
+<p class="hint">
+  Kein Name. Die Kennung wird automatisch vergeben und dient nur dazu, deine
+  Antworten als eine Sitzung zusammenzuhalten.
+</p>
+<p>Deine Kennung: <strong id="rater-id"></strong></p>
 
 <label for="rater-age">Dein Alter:</label>
 <input id="rater-age" type="number" min="1" max="120" placeholder="z.B. 34">
@@ -40,27 +58,79 @@
   <label><input type="radio" name="rater-familiar" value="no"> Nein</label>
 </div>
 
-<h2>Teil 1 – Natürlichkeit (1 = sehr unnatürlich, 5 = klingt wie ein echter Mensch)</h2>
+<p>Hörst du mit Kopfhörern?</p>
+<div class="choice">
+  <label><input type="radio" name="rater-headphones" value="yes"> Ja</label>
+  <label><input type="radio" name="rater-headphones" value="no"> Nein</label>
+</div>
+
+<h2>Übung – zum Einhören (wird nicht gewertet)</h2>
+<p class="hint">
+  Diese Beispiele zeigen dir die Bandbreite des Materials. Sie zählen nicht.
+  Bewerte sie trotzdem, damit du die Skala einmal benutzt hast.
+</p>
+<div id="training-list"></div>
+<button id="start">Übung fertig – Test starten</button>
+
+<div id="main" class="hidden">
+
+<h2>Teil 1 – Natürlichkeit <span class="counter" id="nmos-counter"></span></h2>
+<p class="hint">
+  Wie natürlich klingt die Aufnahme – wie eine echte, von einem Menschen
+  gesprochene Aufnahme? Bewerte den Gesamteindruck, nicht den Inhalt.
+</p>
 <div id="nmos-list"></div>
 
-<h2>Teil 2 – Welche Aufnahme ist echt?</h2>
-<p class="hint">Pro Paar: A und B anhören, dann die Aufnahme wählen, die du für die echte Originalstimme hältst.</p>
+<div id="part2-lock" class="box">
+  Teil 2 wird freigeschaltet, sobald alle Aufnahmen in Teil 1 bewertet sind.
+</div>
+
+<div id="part2" class="hidden">
+<h2>Teil 2 – Welche Aufnahme ist echt? <span class="counter" id="turing-counter"></span></h2>
+<p class="hint">
+  Pro Paar: A und B anhören. Eine der beiden ist eine echte Aufnahme der
+  Person, die andere ist künstlich erzeugt. Wähle die Aufnahme, die du für die
+  echte hältst. Wenn du unsicher bist, rate.
+</p>
 <div id="turing-list"></div>
+</div>
 
 <button id="submit">Ergebnisse speichern</button>
 <p id="status"></p>
 
+</div>
+
 <script>
 const MANIFEST = __MANIFEST_JSON__;
 
-// The stimulus set is fixed for the whole study, but order is randomized per
-// rater: with a fixed order, scale calibration at the start, fatigue at the
-// end and contrast between neighbours would all hit the same items every
-// time, turning those effects into a systematic bias instead of noise.
-// The A/B sides are flipped per rater too, so no side bias can build up and
-// the operator can't learn "this pair's real one is on the left" over many
-// sessions. The page never knows WHICH file is real - it only swaps the two
-// slots and records that it did, so the analysis can undo it.
+// ---------------------------------------------------------------------------
+// What this page decides per rater, and why.
+//
+// PLAN. The build enumerates a small set of plans (which texts go to part 1,
+// which go to part 2, and which model each pair uses). A rater draws one at
+// random. Two consequences: no rater ever meets the same text in both parts -
+// hearing the real voice read a passage in part 1 would give away the answer
+// for that passage in part 2 - and across raters every text is used in both
+// roles with every model. ?plan=N forces a plan, for testing or for balancing
+// the last few sessions by hand.
+//
+// ORDER. Fixed order would make scale calibration at the start, fatigue at the
+// end and contrast between neighbours hit the same items every time, turning
+// those effects into a systematic bias instead of noise. Shuffled per rater.
+//
+// SIDES. The A/B slots of every pair are flipped per rater, so no side bias can
+// build up and the operator cannot learn "this pair's real one is on the left"
+// over many sessions. The page is not told which file is real; it only records
+// that it swapped, so the analysis can undo it.
+//
+// REPEATS. Two items from part 1 are presented a second time. The two ratings
+// of the same stimulus by the same rater give an intra-rater reliability
+// estimate, which costs 20 seconds and tells you how much of the spread in the
+// results is just rating noise.
+// ---------------------------------------------------------------------------
+
+const N_REPEATS = 2;
+
 function shuffled(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -70,78 +140,161 @@ function shuffled(arr) {
   return a;
 }
 
-const NMOS_ORDER = shuffled(MANIFEST.nmos);
-const TURING_ORDER = shuffled(MANIFEST.turing).map(p => ({ ...p, swapped: Math.random() < 0.5 }));
+const params = new URLSearchParams(location.search);
+const forced = parseInt(params.get("plan"), 10);
+const PLAN = Number.isInteger(forced) && MANIFEST.plans[forced]
+  ? MANIFEST.plans[forced]
+  : MANIFEST.plans[Math.floor(Math.random() * MANIFEST.plans.length)];
 
-const nmosList = document.getElementById("nmos-list");
-NMOS_ORDER.forEach((item, idx) => {
-  const div = document.createElement("div");
-  div.className = "item";
-  div.innerHTML = `
-    <div class="pair-label">${idx + 1} / ${NMOS_ORDER.length}</div>
-    <audio controls src="${item.file}"></audio>
-    <div class="scale" data-nmos-id="${item.id}">
-      ${[1,2,3,4,5].map(n => `<label><input type="radio" name="nmos-${item.id}" value="${n}"> ${n}</label>`).join("")}
-    </div>`;
-  nmosList.appendChild(div);
+const RATER_ID = "R-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+document.getElementById("rater-id").textContent = RATER_ID;
+
+// Part 1: the plan's items, shuffled, plus N_REPEATS of them shown twice. A
+// repeat is a separate row with its own slot id but the same stimulus id.
+const base = shuffled(PLAN.nmos);
+const repeatIds = base.slice(0, Math.min(N_REPEATS, base.length));
+const NMOS_ORDER = shuffled([
+  ...base.map((id, i) => ({ slot: `n${i}`, stimulus: id, repeat: false })),
+  ...repeatIds.map((id, i) => ({ slot: `r${i}`, stimulus: id, repeat: true })),
+]);
+
+const TURING_ORDER = shuffled(PLAN.turing).map(p => ({ ...p, swapped: Math.random() < 0.5 }));
+
+const ACR = [
+  [5, "ausgezeichnet – klingt wie ein Mensch"],
+  [4, "gut – wirkt natürlich, kleine Auffälligkeiten"],
+  [3, "ordentlich – hörbar künstlich, aber angenehm"],
+  [2, "mangelhaft – deutlich künstlich, störend"],
+  [1, "schlecht – sehr unnatürlich"],
+];
+
+function scaleHtml(name) {
+  return ACR.map(([n, label]) =>
+    `<label><input type="radio" name="${name}" value="${n}"> <strong>${n}</strong> ${label}</label>`
+  ).join("");
+}
+
+function renderNmos(container, rows, namePrefix, onChange) {
+  rows.forEach((row, idx) => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML = `
+      <div class="pair-label">${idx + 1} / ${rows.length}</div>
+      <audio controls preload="none" src="${MANIFEST.files[row.stimulus]}"></audio>
+      <div class="scale">${scaleHtml(`${namePrefix}-${row.slot}`)}</div>`;
+    div.addEventListener("change", () => { div.classList.add("done"); onChange(); });
+    container.appendChild(div);
+  });
+}
+
+// --- training --------------------------------------------------------------
+const TRAINING_ORDER = shuffled(MANIFEST.training)
+  .map((id, i) => ({ slot: `t${i}`, stimulus: id }));
+renderNmos(document.getElementById("training-list"), TRAINING_ORDER, "train", () => {});
+
+document.getElementById("start").addEventListener("click", () => {
+  document.getElementById("main").classList.remove("hidden");
+  document.getElementById("start").disabled = true;
+  document.getElementById("main").scrollIntoView({ behavior: "smooth" });
 });
 
+// --- part 1 ----------------------------------------------------------------
+function answeredNmos() {
+  return NMOS_ORDER.filter(r =>
+    document.querySelector(`input[name="nmos-${r.slot}"]:checked`)).length;
+}
+
+function updateProgress() {
+  const done = answeredNmos();
+  document.getElementById("nmos-counter").textContent = `(${done} / ${NMOS_ORDER.length})`;
+  if (done === NMOS_ORDER.length) {
+    // Part 2 stays locked until part 1 is finished: a rater who has heard the
+    // pairs first knows what the real voice sounds like and rates part 1 with
+    // that reference in mind.
+    document.getElementById("part2").classList.remove("hidden");
+    document.getElementById("part2-lock").classList.add("hidden");
+  }
+}
+
+renderNmos(document.getElementById("nmos-list"), NMOS_ORDER, "nmos", updateProgress);
+updateProgress();
+
+// --- part 2 ----------------------------------------------------------------
 const turingList = document.getElementById("turing-list");
 TURING_ORDER.forEach((pair, idx) => {
-  const slotA = pair.swapped ? pair.file_b : pair.file_a;
-  const slotB = pair.swapped ? pair.file_a : pair.file_b;
+  const slotA = pair.swapped ? pair.b : pair.a;
+  const slotB = pair.swapped ? pair.a : pair.b;
   const div = document.createElement("div");
   div.className = "item";
   div.innerHTML = `
     <div class="pair-label">${idx + 1} / ${TURING_ORDER.length}</div>
     <div class="pair">
-      <div><div class="pair-label">A</div><audio controls src="${slotA}"></audio></div>
-      <div><div class="pair-label">B</div><audio controls src="${slotB}"></audio></div>
+      <div><div class="pair-label">A</div><audio controls preload="none" src="${MANIFEST.files[slotA]}"></audio></div>
+      <div><div class="pair-label">B</div><audio controls preload="none" src="${MANIFEST.files[slotB]}"></audio></div>
     </div>
-    <div class="choice" data-turing-id="${pair.id}">
+    <div class="choice">
       <label><input type="radio" name="turing-${pair.id}" value="A"> A ist die echte Stimme</label>
       <label><input type="radio" name="turing-${pair.id}" value="B"> B ist die echte Stimme</label>
     </div>`;
+  div.addEventListener("change", () => {
+    div.classList.add("done");
+    const done = TURING_ORDER.filter(p =>
+      document.querySelector(`input[name="turing-${p.id}"]:checked`)).length;
+    document.getElementById("turing-counter").textContent = `(${done} / ${TURING_ORDER.length})`;
+  });
   turingList.appendChild(div);
 });
 
-async function submitPayload() {
-  const nmos = {};
-  for (const item of MANIFEST.nmos) {
-    const checked = document.querySelector(`input[name="nmos-${item.id}"]:checked`);
-    nmos[item.id] = checked ? Number(checked.value) : null;
-  }
-  const turing = {};
-  for (const pair of MANIFEST.turing) {
+// --- submit ----------------------------------------------------------------
+const btn = document.getElementById("submit");
+const statusEl = document.getElementById("status");
+let submitted = false;
+
+function collect() {
+  const nmos = NMOS_ORDER.map((row, position) => {
+    const checked = document.querySelector(`input[name="nmos-${row.slot}"]:checked`);
+    return {
+      slot: row.slot, stimulus: row.stimulus, repeat: row.repeat,
+      position, rating: checked ? Number(checked.value) : null,
+    };
+  });
+  const turing = TURING_ORDER.map((pair, position) => {
     const checked = document.querySelector(`input[name="turing-${pair.id}"]:checked`);
-    turing[pair.id] = checked ? checked.value : null;
-  }
+    return {
+      pair_id: pair.id, position, swapped: pair.swapped,
+      choice: checked ? checked.value : null,
+    };
+  });
+  // Kept for the record only - training items are never scored.
+  const training = TRAINING_ORDER.map(row => {
+    const checked = document.querySelector(`input[name="train-${row.slot}"]:checked`);
+    return { stimulus: row.stimulus, rating: checked ? Number(checked.value) : null };
+  });
 
-  const missing = Object.values(nmos).filter(v => v === null).length
-    + Object.values(turing).filter(v => v === null).length;
-
-  const rater = document.getElementById("rater").value.trim() || "anonym";
   const ageValue = document.getElementById("rater-age").value;
-  const familiarChecked = document.querySelector('input[name="rater-familiar"]:checked');
-  const payload = {
-    rater,
-    age: ageValue ? Number(ageValue) : null,
-    knows_person: familiarChecked ? familiarChecked.value : null,
-    timestamp: new Date().toISOString(),
-    nmos,
-    turing,
-    // What this rater actually saw. turing_swapped is required to score the
-    // Turing answers (the key stores the unswapped side); the orders let you
-    // check afterwards whether position in the session affected ratings.
-    presented: {
-      nmos_order: NMOS_ORDER.map(i => i.id),
-      turing_order: TURING_ORDER.map(p => p.id),
-      turing_swapped: Object.fromEntries(TURING_ORDER.map(p => [p.id, p.swapped])),
-    },
-  };
+  const familiar = document.querySelector('input[name="rater-familiar"]:checked');
+  const headphones = document.querySelector('input[name="rater-headphones"]:checked');
 
-  const statusEl = document.getElementById("status");
-  const btn = document.getElementById("submit");
+  return {
+    rater: RATER_ID,
+    plan_id: PLAN.id,
+    age: ageValue ? Number(ageValue) : null,
+    knows_person: familiar ? familiar.value : null,
+    headphones: headphones ? headphones.value : null,
+    timestamp: new Date().toISOString(),
+    nmos, turing, training,
+    schema: 2,
+  };
+}
+
+async function submitPayload() {
+  if (submitted) return;   // the button becomes a reset button after saving;
+  submitted = true;        // without this guard a second click saved a duplicate
+  btn.disabled = true;
+
+  const payload = collect();
+  const missing = payload.nmos.filter(r => r.rating === null).length
+                + payload.turing.filter(t => t.choice === null).length;
 
   try {
     const res = await fetch("/submit", {
@@ -150,25 +303,28 @@ async function submitPayload() {
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(`server responded ${res.status}`);
-
     statusEl.textContent = missing > 0
       ? `Gespeichert – aber ${missing} Antworten fehlen noch.`
       : "Gespeichert – danke! Bereit für die nächste Person.";
-    btn.textContent = "Für nächste Person zurücksetzen";
-    btn.onclick = () => location.reload();
   } catch (e) {
-    // No listening_test_server.py running (e.g. index.html opened directly
-    // as a file) - fall back to a manual download.
+    // No listening_test_server.py running (e.g. index.html opened directly as
+    // a file) - fall back to a manual download.
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `ratings_${rater}_${Date.now()}.json`;
+    a.download = `ratings_${payload.rater}_${Date.now()}.json`;
     a.click();
-    statusEl.textContent = "Kein Server erreichbar – stattdessen als Datei heruntergeladen. Bitte manuell in responses/ legen.";
+    statusEl.textContent = "Kein Server erreichbar – stattdessen als Datei heruntergeladen. "
+      + "Bitte manuell in responses/ legen.";
   }
+
+  btn.disabled = false;
+  btn.textContent = "Für nächste Person zurücksetzen";
+  btn.removeEventListener("click", submitPayload);
+  btn.addEventListener("click", () => location.reload());
 }
 
-document.getElementById("submit").addEventListener("click", submitPayload);
+btn.addEventListener("click", submitPayload);
 </script>
 
 </body>

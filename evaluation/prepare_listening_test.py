@@ -2,49 +2,77 @@
 already-synthesized audio in evaluation/results/.
 
 Usage (in-person, one machine, back-to-back raters):
-    uv run python evaluation/run_eval.py               # produce audio first
+    uv run python evaluation/run_eval.py                # produce audio first
+    uv run python evaluation/select_excerpts.py         # choose + locate the excerpts
+    uv run python evaluation/qc_samples.py              # screen the stimuli
     uv run python evaluation/prepare_listening_test.py  # build the test (run ONCE - see below)
     uv run python evaluation/listening_test_server.py   # serve it, then open http://localhost:8765 per rater
 
-Re-running prepare_listening_test.py reshuffles everything and overwrites
-key.json, which desyncs any ratings already collected - it refuses to run
-once evaluation/results/listening_test/responses/ has data (pass --force to
-override once you're truly starting a fresh test).
+Stimuli are ~10 s excerpts, not the full renders (those run 12-92 s here). Each
+excerpt is chosen once per text and cut at word boundaries in every rendition,
+so every model is judged on identical content - see excerpt.py for why a fixed
+time window would bias the comparison against the slower model.
+
+Three design decisions are worth reading before changing anything here.
+
+**The real voice is a condition, not just the answer key.** It is rated for
+naturalness alongside the three models. Without it "qwen3 scores 4.1" has no
+ceiling to compare against, and the first question anyone asks is what the
+human original scores under the same conditions.
+
+**Rater plans instead of one list for everybody.** A rater who hears text T in
+part 1 and then has to spot the real voice for text T in part 2 has already
+heard the answer. So the texts are split per rater: half go to the N-MOS part,
+half to the Turing part, and no rater meets the same text in both. Which half,
+and which model each Turing pair uses, is fixed by a small set of enumerated
+plans (role group x model rotation). Every rater draws one plan at random, so
+across raters every text is used in both roles and every model is paired with
+every text - a Latin square, built here rather than left to chance.
+
+That replaces `models[i % len(models)]`, which assigned one model per text and
+so gave the Turing test only 5 distinct pairs per model. More raters could not
+fix that: the confidence interval was over 5 items however many people
+answered. With the rotation it is over all 15.
+
+**Nothing in the shipped files says what anything is.** Stimuli are named
+`s_001.wav`, assigned after the shuffle. The earlier version wrote
+`turing_03_real.wav` / `turing_03_clone.wav` into the page and the samples
+folder, so any rater who opened the page source or looked at an audio URL could
+read the answer.
 
 Output goes to evaluation/results/listening_test/ (gitignored, same as the
 rest of evaluation/results/):
-    samples/       - anonymized copies of the audio (no model name in the filename)
+    samples/       - the stimuli, opaque names only
     index.html     - self-contained rating UI (served locally, or opened directly
                      in a browser as a fallback - see listening_test_server.py)
-    key.json       - HIDDEN mapping anon_id -> model/text. Needed for analysis,
+    key.json       - HIDDEN mapping s_xxx -> condition/text. Needed for analysis,
                      must NOT be shown to raters (it would unblind the test).
+    run_meta.json  - seed, git commit, input hashes: what this set was built from
+    stimuli.csv    - measured level, pause floor and excerpt span per stimulus
     responses/     - one line per rater in all_ratings.jsonl, written by the
                      server as each rater finishes; nmos_summary.csv and
                      turing_summary.csv are regenerated after every submission.
     share.zip      - index.html + samples/ only (no key.json), for raters who
-                     can't come in person. It's ~200MB (80 WAV files), so share
-                     it via a cloud drive link rather than email; they rate on
-                     their own machine (no server, falls back to a manual
-                     ratings_*.json download) and send that file back to you -
-                     drop it straight into responses/, analyze_listening_test.py
-                     picks it up alongside the server-collected ones.
+                     can't come in person. They rate on their own machine (no
+                     server, falls back to a manual ratings_*.json download) and
+                     send that file back - drop it into responses/, where
+                     analyze_listening_test.py picks it up.
 
-N-MOS part: every synthesized sample (all models x all texts), rated 1-5 for
-naturalness, order shuffled.
+Re-running this script reshuffles everything and overwrites key.json, which
+desyncs any ratings already collected - it refuses to run once
+responses/ has data (pass --force once you are truly starting a fresh test).
 
-Turing test part: one real recording vs. one clone per text, paired up so a
-rater has to say which of A/B is the real voice. The clone model is assigned
-round-robin across texts so every model gets roughly equal coverage; A/B side
-and pair order are both randomized to avoid position bias.
-
-To recompute results.csv / print a full report at any time (also runs
+To recompute the summaries / print a full report at any time (also runs
 automatically after every submission through the server):
     uv run python evaluation/analyze_listening_test.py
 """
 
+import argparse
 import csv
+import hashlib
 import json
 import random
+import subprocess
 import sys
 import zipfile
 from datetime import datetime
@@ -55,6 +83,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from myecho.evaluation.audio_qc import (  # noqa: E402
     COMMON_SR,
     TARGET_LUFS,
+    TARGET_PAUSE_SNR_DB,
     prepare_stimulus,
 )
 
@@ -63,8 +92,24 @@ RESULTS_DIR = Path(__file__).parent / "results"
 TEMPLATE_PATH = Path(__file__).parent / "listening_test_template.html"
 OUT_DIR = RESULTS_DIR / "listening_test"
 EXCLUSIONS_PATH = RESULTS_DIR / "exclusions.json"
+EXCERPTS_PATH = RESULTS_DIR / "excerpts.json"
 
 AUDIO_EXT = "wav"
+
+# The real recording is a condition in the N-MOS part, not only the answer in
+# the Turing part. Named so it cannot collide with a model directory name.
+REAL = "REAL"
+
+# Texts are split into this many role groups. 2 = half the texts go to the
+# N-MOS part for a given rater and half to the Turing part, so nobody meets the
+# same text twice. Raising it shortens the session and lowers coverage per
+# rater; the plan count is ROLE_GROUPS x len(models).
+ROLE_GROUPS = 2
+
+# Unscored items shown before the real ones so the rater has heard the range of
+# the material before the first score that counts. Taken from texts that are
+# dropped from the analysis anyway.
+N_TRAINING = 3
 
 
 def load_case(case_name=None):
@@ -84,12 +129,17 @@ def load_texts(case):
     with open(texts_path, encoding="utf-8") as f:
         data = json.load(f)
     return [{"id": t.get("id", str(i)), "source_audio": t["source_audio"]}
-             for i, t in enumerate(data["texts"])]
+            for i, t in enumerate(data["texts"])]
 
 
 def real_audio_path(source_audio):
-    """Prefer the denoised recording so 'real' samples aren't trivially
-    identifiable by background noise alone."""
+    """Prefer the denoised recording.
+
+    Note this is only half a fix on its own: denoising removes the background
+    noise that would identify the real samples, but it also gives them
+    digitally silent pauses that no TTS model produces, which identifies them
+    just as well. audio_qc.match_noise_floor closes that second gap.
+    """
     denoised = Path("data/DeepFilterNet") / source_audio
     if denoised.exists():
         return denoised
@@ -105,56 +155,144 @@ def clone_audio_path(case_dir, model, index, text_id):
 
 
 def load_exclusions():
-    """{(model, text_id): reason} from exclusions.json, written by qc_samples.py."""
+    """({(model, text_id): reason}, keep_unbalanced) from exclusions.json."""
     if not EXCLUSIONS_PATH.exists():
-        return {}
+        return {}, False
     with open(EXCLUSIONS_PATH, encoding="utf-8") as f:
         data = json.load(f)
-    return {(e["model"], e["text_id"]): e.get("reason", "") for e in data.get("exclude", [])}
+    excluded = {(e["model"], e["text_id"]): e.get("reason", "") for e in data.get("exclude", [])}
+    return excluded, bool(data.get("keep_unbalanced", False))
 
 
-def build_nmos(case_dir, models, texts, excluded):
-    samples = []
-    for model in models:
-        for i, entry in enumerate(texts):
-            if (model, entry["id"]) in excluded:
+def load_excerpts():
+    """The excerpt spans written by select_excerpts.py."""
+    if not EXCERPTS_PATH.exists():
+        raise SystemExit(
+            f"{EXCERPTS_PATH} not found - run evaluation/select_excerpts.py first.\n"
+            "It picks one ~10 s excerpt per text and locates it in every rendition, "
+            "so raters judge matched content instead of the 12-92 s full renders."
+        )
+    with open(EXCERPTS_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def unlocated(spans, models, texts):
+    """Renditions whose excerpt was not found, in the shape of exclusions.json.
+
+    Reusing that shape is deliberate: the balanced-design rule then applies to
+    them too, so the text is dropped for every model rather than leaving one
+    model scored on material the others were not.
+    """
+    return {
+        (model, entry["id"]): "excerpt not found in this rendition"
+        for model in models
+        for entry in texts
+        if f"{model}/{entry['id']}" not in spans
+    }
+
+
+def dropped_texts(excluded, keep_unbalanced):
+    """Texts to drop for EVERY model, not just the one that failed.
+
+    Excluding one model's render of a text leaves that text rated for the
+    other models only. Texts differ in difficulty, so each model's mean would
+    then be an average over a slightly different text set - a small bias that
+    is free to avoid: drop the whole text and every model is scored on
+    identical material (a balanced design).
+
+    Set "keep_unbalanced": true in exclusions.json to keep the extra items
+    instead, e.g. if you would otherwise lose too much material.
+    """
+    if keep_unbalanced:
+        return set()
+    return {text_id for _, text_id in excluded}
+
+
+def usable_texts(texts, excluded, skip_texts, spans):
+    """Texts that every condition (all models + REAL) can render."""
+    out = []
+    for entry in texts:
+        text_id = entry["id"]
+        if text_id in skip_texts:
+            continue
+        if f"{REAL}/{text_id}" not in spans:
+            continue
+        if any((model, text_id) in excluded for model, _ in excluded):
+            pass
+        out.append(entry)
+    return out
+
+
+def build_items(case_dir, conditions, texts, spans, index_of):
+    """One stimulus per (condition, text): {"cond", "text_id", "src", "span"}."""
+    items = []
+    for entry in texts:
+        text_id = entry["id"]
+        for cond in conditions:
+            if cond == REAL:
+                src = real_audio_path(entry["source_audio"])
+            else:
+                src = clone_audio_path(case_dir, cond, index_of[text_id], text_id)
+            if not src.exists():
                 continue
-            src = clone_audio_path(case_dir, model, i, entry["id"])
-            if src.exists():
-                samples.append({"model": model, "text_id": entry["id"], "src": src})
-    # Order is deliberately NOT fixed here beyond assigning ids: the page
-    # shuffles per rater at load time (see listening_test_template.html), so
-    # order effects stay noise instead of favouring particular items.
-    random.shuffle(samples)
-    for i, s in enumerate(samples, start=1):
-        s["anon_id"] = f"nmos_{i:02d}"
-    return samples
+            items.append({"cond": cond, "text_id": text_id, "src": src,
+                          "span": spans[f"{cond}/{text_id}"]})
+    return items
 
 
-def build_turing(case_dir, models, texts, excluded):
-    pairs = []
-    for i, entry in enumerate(texts):
-        model = models[i % len(models)]
-        if (model, entry["id"]) in excluded:
+def build_plans(texts, models, role_groups=ROLE_GROUPS):
+    """Enumerate the rater plans: (role group) x (model rotation).
+
+    Plan (g, r) sends text slot i to the Turing part when i % role_groups == g,
+    and pairs it with models[(i + r) % len(models)]. Every other text goes to
+    the N-MOS part with all conditions.
+
+    Enumerated rather than drawn per rater: with ~30 raters, random assignment
+    would leave the coverage of some text x model cells to luck. Here every
+    cell is covered as soon as each plan has been used once.
+    """
+    plans = []
+    for g in range(role_groups):
+        for r in range(len(models)):
+            turing, nmos = [], []
+            for i, entry in enumerate(texts):
+                if i % role_groups == g:
+                    turing.append((entry["id"], models[(i + r) % len(models)]))
+                else:
+                    nmos.append(entry["id"])
+            plans.append({"role_group": g, "model_rotation": r,
+                          "nmos_texts": nmos, "turing": turing})
+    return plans
+
+
+def training_items(case_dir, conditions, texts, skip_texts, spans, index_of, n=N_TRAINING):
+    """Unscored warm-up stimuli, taken from texts dropped from the analysis.
+
+    Dropped texts are the natural source: they are already outside the results,
+    and reusing them means the warm-up sounds exactly like the real task. One
+    real recording first, then clones from different models, so the rater has
+    heard both ends of the material before the first scored item.
+    """
+    picked, used_models = [], set()
+    for entry in texts:
+        if entry["id"] not in skip_texts:
             continue
-        clone_src = clone_audio_path(case_dir, model, i, entry["id"])
-        real_src = real_audio_path(entry["source_audio"])
-        if not (clone_src.exists() and real_src.exists()):
-            continue
-        # Which side holds the real recording is re-randomized per rater in the
-        # page; this is only the baseline the page flips against.
-        real_position = random.choice(["A", "B"])
-        pairs.append({
-            "model": model,
-            "text_id": entry["id"],
-            "real_position": real_position,
-            "real_src": real_src,
-            "clone_src": clone_src,
-        })
-    random.shuffle(pairs)
-    for i, p in enumerate(pairs, start=1):
-        p["pair_id"] = f"turing_{i:02d}"
-    return pairs
+        for cond in [REAL] + [c for c in conditions if c != REAL]:
+            if len(picked) >= n:
+                return picked
+            if cond != REAL and cond in used_models:
+                continue
+            if f"{cond}/{entry['id']}" not in spans:
+                continue
+            src = (real_audio_path(entry["source_audio"]) if cond == REAL
+                   else clone_audio_path(case_dir, cond, index_of[entry["id"]], entry["id"]))
+            if not src.exists():
+                continue
+            picked.append({"cond": cond, "text_id": entry["id"], "src": src,
+                           "span": spans[f"{cond}/{entry['id']}"]})
+            if cond != REAL:
+                used_models.add(cond)
+    return picked
 
 
 def has_existing_responses():
@@ -164,12 +302,30 @@ def has_existing_responses():
     return any(responses_dir.glob("*.json")) or (responses_dir / "all_ratings.jsonl").exists()
 
 
-def main():
-    force = "--force" in sys.argv
-    if force:
-        sys.argv.remove("--force")
+def git_commit():
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
 
-    if has_existing_responses() and not force:
+
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("case", nargs="?", default=None)
+    parser.add_argument("--seed", type=int, default=20260901,
+                        help="Seed for stimulus id assignment. Recorded in run_meta.json; "
+                             "the same seed rebuilds the identical test.")
+    parser.add_argument("--force", action="store_true",
+                        help="Rebuild even though ratings were already collected. "
+                             "This invalidates them.")
+    args = parser.parse_args()
+
+    if has_existing_responses() and not args.force:
         raise SystemExit(
             f"{OUT_DIR / 'responses'} already has collected ratings.\n"
             "Re-running this would reshuffle the samples and overwrite key.json, "
@@ -178,86 +334,140 @@ def main():
             "yourself), or pass --force if you really mean to start a fresh test."
         )
 
-    case_name = sys.argv[1] if len(sys.argv) > 1 else None
-    case = load_case(case_name)
+    rng = random.Random(args.seed)
+
+    case = load_case(args.case)
     texts = load_texts(case)
+    index_of = {entry["id"]: i for i, entry in enumerate(texts)}
     case_dir = RESULTS_DIR / case["name"]
     if not case_dir.exists():
         raise SystemExit(f"{case_dir} not found - run evaluation/run_eval.py first")
 
     models = find_models(case_dir)
-    excluded = load_exclusions()
-    print(f"Case: {case['name']}  models: {models}  texts: {len(texts)}")
+    conditions = models + [REAL]
+    excerpts = load_excerpts()
+    spans = excerpts["spans"]
+
+    excluded, keep_unbalanced = load_exclusions()
+    excluded = {**unlocated(spans, models, texts), **excluded}
+    skip_texts = dropped_texts(excluded, keep_unbalanced)
+    # A text whose REAL recording has no located excerpt cannot form a Turing
+    # pair and has no anchor, so it goes entirely - independent of balancing.
+    skip_texts |= {e["id"] for e in texts if f"{REAL}/{e['id']}" not in spans}
+
+    print(f"Case: {case['name']}  conditions: {conditions}  texts: {len(texts)}")
     if excluded:
-        print(f"Excluding {len(excluded)} stimuli from {EXCLUSIONS_PATH.name}:")
-        for (model, text_id), reason in excluded.items():
+        print(f"\nExcluding {len(excluded)} rendition(s):")
+        for (model, text_id), reason in sorted(excluded.items()):
             print(f"  {model}/{text_id}: {reason}")
-    else:
-        print(f"No exclusions ({EXCLUSIONS_PATH.name} missing or empty) - "
-              "run evaluation/qc_samples.py first to screen the stimuli.")
+    if skip_texts:
+        print(f"\nDropping {len(skip_texts)} text(s) for ALL conditions, so every "
+              "condition is scored on identical material (balanced design):")
+        for text_id in sorted(skip_texts):
+            print(f"  {text_id}")
 
-    nmos = build_nmos(case_dir, models, texts, excluded)
-    turing = build_turing(case_dir, models, texts, excluded)
+    kept = [e for e in texts if e["id"] not in skip_texts]
+    if len(kept) < 4:
+        raise SystemExit(f"Only {len(kept)} usable text(s) left - too few for a test.")
 
+    plans = build_plans(kept, models)
+    items = build_items(case_dir, conditions, kept, spans, index_of)
+    training = training_items(case_dir, conditions, texts, skip_texts, spans, index_of)
+
+    # --- render every stimulus under an opaque name -------------------------
     samples_dir = OUT_DIR / "samples"
     samples_dir.mkdir(parents=True, exist_ok=True)
+    for stale in samples_dir.glob(f"*.{AUDIO_EXT}"):
+        stale.unlink()
 
-    # Every stimulus is resampled to one rate and loudness-normalized, so
-    # neither level nor bandwidth can stand in for quality. See audio_qc.py.
-    print(f"\nNormalizing stimuli to {TARGET_LUFS} LUFS @ {COMMON_SR} Hz...")
-    stimuli_rows = []
+    # A Turing pair reuses the two stimuli that already exist for its text: the
+    # clone of that model and the real recording. Both sides are therefore cut
+    # from the same excerpt and processed identically.
+    by_key = {}
+    all_stimuli = items + training
+    order = list(range(len(all_stimuli)))
+    rng.shuffle(order)
 
-    manifest_nmos = []
-    key_nmos = []
-    for s in nmos:
-        dest = samples_dir / f"{s['anon_id']}.{AUDIO_EXT}"
-        info = prepare_stimulus(s["src"], dest)
-        manifest_nmos.append({"id": s["anon_id"], "file": f"samples/{dest.name}"})
-        key_nmos.append({"anon_id": s["anon_id"], "model": s["model"],
-                         "text_id": s["text_id"], "loudness": info})
-        stimuli_rows.append({"stimulus": s["anon_id"], "role": "nmos", "model": s["model"],
-                             "text_id": s["text_id"], **info})
+    print(f"\nCutting excerpts, normalizing to {TARGET_LUFS} LUFS @ {COMMON_SR} Hz, "
+          f"matching the pause floor to speech -{TARGET_PAUSE_SNR_DB:.0f} dB...")
+    stimuli_rows, key_stimuli, files = [], {}, {}
+    for anon_index, item_index in enumerate(order, start=1):
+        item = all_stimuli[item_index]
+        anon_id = f"s_{anon_index:03d}"
+        dest = samples_dir / f"{anon_id}.{AUDIO_EXT}"
+        info = prepare_stimulus(item["src"], dest, span=item["span"])
+        role = "training" if item_index >= len(items) else "scored"
+        by_key[(item["cond"], item["text_id"], role)] = anon_id
+        files[anon_id] = f"samples/{dest.name}"
+        key_stimuli[anon_id] = {"condition": item["cond"], "text_id": item["text_id"],
+                                "role": role, "levels": info}
+        stimuli_rows.append({
+            "stimulus": anon_id, "role": role, "condition": item["cond"],
+            "text_id": item["text_id"],
+            "excerpt_start_s": round(item["span"]["start"], 2),
+            "excerpt_end_s": round(item["span"]["end"], 2),
+            "match_ratio": item["span"]["match_ratio"], **info,
+        })
         if not info["reached_target"]:
-            print(f"  WARNING {s['anon_id']} ({s['model']}/{s['text_id']}): {info['reason']}")
+            print(f"  WARNING {anon_id} ({item['cond']}/{item['text_id']}): {info['reason']}")
+        if info["pause_snr_before_db"] is not None and not info["raised"]:
+            print(f"  NOTE {anon_id} ({item['cond']}/{item['text_id']}): pause floor "
+                  f"already above target ({info['pause_snr_before_db']} dB) - not lowered")
 
-    manifest_turing = []
-    key_turing = []
-    for p in turing:
-        dest_real = samples_dir / f"{p['pair_id']}_real.{AUDIO_EXT}"
-        dest_clone = samples_dir / f"{p['pair_id']}_clone.{AUDIO_EXT}"
-        info_real = prepare_stimulus(p["real_src"], dest_real)
-        info_clone = prepare_stimulus(p["clone_src"], dest_clone)
-        file_a = dest_real.name if p["real_position"] == "A" else dest_clone.name
-        file_b = dest_clone.name if p["real_position"] == "A" else dest_real.name
-        manifest_turing.append({
-            "id": p["pair_id"],
-            "file_a": f"samples/{file_a}",
-            "file_b": f"samples/{file_b}",
-        })
-        key_turing.append({
-            "pair_id": p["pair_id"],
-            "model": p["model"],
-            "text_id": p["text_id"],
-            "real_position": p["real_position"],
-            "loudness_real": info_real,
-            "loudness_clone": info_clone,
-        })
-        stimuli_rows.append({"stimulus": f"{p['pair_id']}_real", "role": "turing_real",
-                             "model": "REAL", "text_id": p["text_id"], **info_real})
-        stimuli_rows.append({"stimulus": f"{p['pair_id']}_clone", "role": "turing_clone",
-                             "model": p["model"], "text_id": p["text_id"], **info_clone})
-        for label, info in (("real", info_real), ("clone", info_clone)):
-            if not info["reached_target"]:
-                print(f"  WARNING {p['pair_id']}_{label} ({p['text_id']}): {info['reason']}")
+    # --- pairs and plans, in terms of those opaque ids ----------------------
+    pairs, key_pairs = {}, {}
+    pair_index = 0
+    for plan in plans:
+        plan_pairs = []
+        for text_id, model in plan["turing"]:
+            clone_id = by_key.get((model, text_id, "scored"))
+            real_id = by_key.get((REAL, text_id, "scored"))
+            if clone_id is None or real_id is None:
+                continue
+            existing = pairs.get((text_id, model))
+            if existing is None:
+                pair_index += 1
+                existing = f"q_{pair_index:03d}"
+                pairs[(text_id, model)] = existing
+                # Baseline side only; the page re-flips it per rater.
+                real_side = rng.choice(["a", "b"])
+                key_pairs[existing] = {"model": model, "text_id": text_id,
+                                       "real_side": real_side,
+                                       "real_id": real_id, "clone_id": clone_id}
+            info = key_pairs[existing]
+            plan_pairs.append({
+                "id": existing,
+                "a": info["real_id"] if info["real_side"] == "a" else info["clone_id"],
+                "b": info["clone_id"] if info["real_side"] == "a" else info["real_id"],
+            })
+        plan["pairs"] = plan_pairs
+
+    manifest_plans = []
+    for i, plan in enumerate(plans):
+        nmos_ids = [by_key[(cond, text_id, "scored")]
+                    for text_id in plan["nmos_texts"]
+                    for cond in conditions
+                    if (cond, text_id, "scored") in by_key]
+        manifest_plans.append({"id": i, "nmos": nmos_ids, "turing": plan["pairs"]})
+
+    training_ids = [by_key[(t["cond"], t["text_id"], "training")] for t in training]
+
+    manifest = {
+        "files": files,
+        "training": training_ids,
+        "plans": manifest_plans,
+    }
 
     with open(OUT_DIR / "stimuli.csv", "w", newline="", encoding="utf-8") as f:
-        fields = ["stimulus", "role", "model", "text_id", "gain_db", "achieved_lufs",
-                  "reached_target", "reason", "sample_rate"]
+        fields = ["stimulus", "role", "condition", "text_id", "duration_s",
+                  "excerpt_start_s", "excerpt_end_s", "match_ratio",
+                  "gain_db", "achieved_lufs", "reached_target", "reason",
+                  "pause_snr_before_db", "pause_snr_after_db", "noise_added_dbfs",
+                  "raised", "sample_rate"]
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(stimuli_rows)
 
-    manifest = {"nmos": manifest_nmos, "turing": manifest_turing}
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     html = template.replace("__MANIFEST_JSON__", json.dumps(manifest, ensure_ascii=False))
     (OUT_DIR / "index.html").write_text(html, encoding="utf-8")
@@ -265,27 +475,71 @@ def main():
     key = {
         "case": case["name"],
         "stimulus_set_built": datetime.now().isoformat(timespec="seconds"),
+        "conditions": conditions,
+        "real_condition": REAL,
         "target_lufs": TARGET_LUFS,
+        "target_pause_snr_db": TARGET_PAUSE_SNR_DB,
         "sample_rate": COMMON_SR,
+        "excerpt_params": excerpts["params"],
         "excluded": [{"model": m, "text_id": t, "reason": r} for (m, t), r in excluded.items()],
-        "nmos": key_nmos,
-        "turing": key_turing,
+        "dropped_texts": sorted(skip_texts),
+        "stimuli": key_stimuli,
+        "pairs": key_pairs,
+        "plans": [{"id": i, "role_group": p["role_group"],
+                   "model_rotation": p["model_rotation"]} for i, p in enumerate(plans)],
     }
-    (OUT_DIR / "key.json").write_text(json.dumps(key, ensure_ascii=False, indent=2), encoding="utf-8")
+    (OUT_DIR / "key.json").write_text(json.dumps(key, ensure_ascii=False, indent=2),
+                                      encoding="utf-8")
+
+    run_meta = {
+        "built": datetime.now().isoformat(timespec="seconds"),
+        "seed": args.seed,
+        "git_commit": git_commit(),
+        "case": case["name"],
+        "texts_file": case["texts_file"],
+        "texts_file_sha256": sha256(case["texts_file"]),
+        "excerpts_created": excerpts.get("created"),
+        "excerpt_params": excerpts["params"],
+        "conditions": conditions,
+        "n_texts_total": len(texts),
+        "n_texts_used": len(kept),
+        "n_stimuli": len(key_stimuli),
+        "n_pairs": len(key_pairs),
+        "n_plans": len(plans),
+        "target_lufs": TARGET_LUFS,
+        "target_pause_snr_db": TARGET_PAUSE_SNR_DB,
+        "sample_rate": COMMON_SR,
+    }
+    (OUT_DIR / "run_meta.json").write_text(json.dumps(run_meta, ensure_ascii=False, indent=2),
+                                           encoding="utf-8")
 
     (OUT_DIR / "responses").mkdir(exist_ok=True)
 
     share_zip = OUT_DIR / "share.zip"
     with zipfile.ZipFile(share_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(OUT_DIR / "index.html", "index.html")
-        for f in samples_dir.iterdir():
+        for f in sorted(samples_dir.iterdir()):
             zf.write(f, f"samples/{f.name}")
 
-    print(f"\n{len(nmos)} N-MOS samples, {len(turing)} Turing pairs.")
-    print(f"Per-stimulus levels -> {OUT_DIR / 'stimuli.csv'}")
-    print("\nThis stimulus set is now FROZEN. Every rater rates these same items;")
-    print("the page shuffles their order (and the A/B sides) per rater, so sessions")
-    print("on different days stay comparable. Do not re-run this script mid-study.")
+    per_plan_nmos = [len(p["nmos"]) for p in manifest_plans]
+    per_plan_turing = [len(p["turing"]) for p in manifest_plans]
+    seconds = {r["stimulus"]: r["duration_s"] for r in stimuli_rows}
+    plan_minutes = [
+        (sum(seconds[i] for i in p["nmos"])
+         + sum(seconds[q["a"]] + seconds[q["b"]] for q in p["turing"])) / 60
+        for p in manifest_plans
+    ]
+
+    print(f"\n{len(kept)} texts x {len(conditions)} conditions = {len(items)} scored "
+          f"stimuli, {len(key_pairs)} Turing pairs, {len(training_ids)} training items.")
+    print(f"{len(plans)} rater plans ({ROLE_GROUPS} role groups x {len(models)} model "
+          f"rotations); each rater draws one at random.")
+    print(f"  per rater: {min(per_plan_nmos)}-{max(per_plan_nmos)} N-MOS items, "
+          f"{min(per_plan_turing)}-{max(per_plan_turing)} Turing pairs, "
+          f"{min(plan_minutes):.1f}-{max(plan_minutes):.1f} min of audio")
+    print(f"Per-stimulus levels, pause floors and excerpt spans -> {OUT_DIR / 'stimuli.csv'}")
+    print(f"Build provenance (seed, commit, input hashes) -> {OUT_DIR / 'run_meta.json'}")
+    print("\nThis stimulus set is now FROZEN. Do not re-run this script mid-study.")
     print(f"\nStart sessions with: uv run python evaluation/listening_test_server.py")
     print(f"For remote raters: share {share_zip} (does NOT contain key.json).")
     print("Do NOT open key.json yourself before the sessions - you run them, and")

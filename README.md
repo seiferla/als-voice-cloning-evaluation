@@ -87,6 +87,13 @@ actual synthesis failures — never because something "sounds bad", since that i
 exactly what you are measuring. The file is your written record of what was
 removed and why.
 
+**Balanced design:** if a text is excluded for one model, that text is dropped
+for **all** models, so every model is scored on identical material. Texts differ
+in difficulty, so otherwise each model's mean would average over a slightly
+different text set. With 16 texts and 1 exclusion this gives 15 texts × 3 models
+= **45 N-MOS samples and 15 Turing pairs (5 per model)**. Set
+`"keep_unbalanced": true` in `exclusions.json` to keep the extra items instead.
+
 ### Step 2 — Build the test (once, then never again)
 
 ```bash
@@ -159,7 +166,7 @@ treats each answer as independent, which it is not.
 
 ### Remote raters
 
-Share `share.zip` via a cloud link (~170 MB, too big for email). They unzip it,
+Share `share.zip` via a cloud link (~130 MB, too big for email). They unzip it,
 open `index.html`, rate, and send back the downloaded `ratings_*.json`. Drop that
 file into `responses/` — the analysis picks it up alongside the server-collected
 ones.

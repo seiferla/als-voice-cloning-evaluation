@@ -1,11 +1,27 @@
 """Evaluation metrics for voice cloning."""
 
+import os
 import re
 
 import numpy as np
 
+# Whisper's word_timestamps path runs its DTW through numba with parallel=True,
+# which starts a second OpenMP runtime next to the one torch already loaded. On
+# macOS with a conda-based interpreter that combination aborts the process
+# (OMP Error #15) or segfaults mid-inference. Pinning numba to one thread keeps
+# the alignment on a single runtime; the DTW is a negligible share of the ASR
+# cost, so nothing measurable is lost. setdefault, so an explicit value wins.
+# Must run before torch/numba are imported, i.e. at import time of this module.
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 _classifier = None
 _whisper_model = None
+
+# One place to change the ASR size. "small" is the current baseline; the EDA
+# notebook uses a German-finetuned large model, which is the better choice once
+# the WER numbers are re-run.
+WHISPER_MODEL = "small"
 
 
 def similarity(ref_embedding, clone_embedding):
@@ -113,8 +129,7 @@ def extract_embedding(audio_path):
     return embedding.squeeze().detach().cpu().numpy()
 
 
-def transcribe(audio_path, language="de"):
-    """Transcribe audio with Whisper (produces the ASR output for wer())."""
+def _load_whisper():
     global _whisper_model
     try:
         import whisper
@@ -122,7 +137,27 @@ def transcribe(audio_path, language="de"):
         raise ImportError("openai-whisper not installed: uv sync --extra eval")
 
     if _whisper_model is None:
-        _whisper_model = whisper.load_model("small")
+        _whisper_model = whisper.load_model(WHISPER_MODEL)
+    return _whisper_model
 
-    result = _whisper_model.transcribe(str(audio_path), language=language)
+
+def transcribe(audio_path, language="de"):
+    """Transcribe audio with Whisper (produces the ASR output for wer())."""
+    result = _load_whisper().transcribe(str(audio_path), language=language)
     return result["text"]
+
+
+def transcribe_words(audio_path, language="de"):
+    """Word-level timestamps: [{"word", "start", "end"}, ...].
+
+    Used to locate an excerpt inside a rendition (see excerpt.py) so stimuli
+    can be cut at word boundaries instead of at a fixed time offset.
+    """
+    result = _load_whisper().transcribe(
+        str(audio_path), language=language, word_timestamps=True
+    )
+    return [
+        {"word": w["word"].strip(), "start": float(w["start"]), "end": float(w["end"])}
+        for segment in result["segments"]
+        for w in segment.get("words", [])
+    ]
