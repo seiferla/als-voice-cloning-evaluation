@@ -1,51 +1,19 @@
-"""Builds ONE canonical enrollment file and records exactly what went into it.
+"""Builds one canonical enrollment file and records what went into it.
 
 Usage:
-    uv run python evaluation/prepare_enrollment.py data/wav/AUDIO-2021-07-31-14-49-50.wav
+    uv run python evaluation/prepare_enrollment.py data/wav/<reference>.wav
 
-Why this exists
----------------
-The three systems were not cloned from the same input:
+The three services were not cloned from the same input: qwen3 with server-side
+preprocessing, voxtral with raw bytes plus a gender hint, s2pro through a web
+upload. A similarity difference can then come from the model or from the audio
+it was given, and the results cannot separate those.
 
-    qwen3     enable_preprocess=True  -> server-side denoising and normalization
-    voxtral   raw file bytes          + a hardcoded gender="female" hint
-    s2pro     uploaded by hand through the Fish Audio web UI
+This writes data/enrollment/reference_<stem>.wav - mono, 24 kHz, loudness
+normalized, optionally trimmed - plus enrollment.json with the source and output
+sha256, the parameters and a per-provider checklist. Deterministic.
 
-So the comparison "which system clones this voice best" is confounded at the
-first step. A difference in SIM can come from the model or from the fact that one
-model was handed cleaner audio than another, and nothing in the results can tell
-those apart. This is the largest single threat to the conclusion, larger than
-anything in the listening test.
-
-The fix is one reference file, preprocessed once, here, under your control, and
-handed to all three with every provider-side preprocessing switched OFF. Then the
-only thing that differs between the systems is the system.
-
-What this script does
----------------------
-Produces `data/enrollment/reference_<stem>.wav` - mono, 24 kHz, loudness
-normalized, optionally trimmed to a fixed duration - plus `enrollment.json`
-recording the source file, its sha256, the output sha256, the exact parameters
-and the provider settings each system must be given. Deterministic: the same
-input and parameters produce a byte-identical file.
-
-It deliberately does NOT call the three APIs. Enrollment costs money, two of the
-three keep the audio, and s2pro has no API for it at all - that has to stay a
-decision you make, not a side effect of running a script. What it does give you
-is the file and the checklist, so the three enrollments are reproducible and
-documented instead of remembered.
-
-After running it
-----------------
-    qwen3    python qwen_voice_enroll.py create --audio <output> --name myecho_v2
-             then set enable_preprocess=False (src/myecho/models/qwen3.py) -
-             it defaults to True, which is the confound
-    voxtral  VoxtralTTS().create_voice(<output>)  - and drop the gender hint
-             unless you can pass the same hint to all three
-    s2pro    upload <output> in the Fish Audio web UI, no trimming, no cleanup
-
-Then put the three new ids in .env, re-run run_eval.py, and note the
-enrollment.json hash in the report.
+It does not call the APIs. Enrollment costs money, two of the three keep the
+audio, and s2pro has no enrollment API. See docs/METHODS.md section 5.
 """
 
 import argparse

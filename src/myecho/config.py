@@ -9,7 +9,6 @@ load_dotenv()
 S2PRO_API_KEY = os.getenv("S2PRO_API_KEY")
 VOXTRAL_API_KEY = os.getenv("VOXTRAL_API_KEY")
 QWEN3_API_KEY = os.getenv("QWEN3_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Voice IDs
 VOXTRAL_VOICE_ID = os.getenv("VOXTRAL_VOICE_ID")

@@ -103,31 +103,11 @@
 <script>
 const MANIFEST = __MANIFEST_JSON__;
 
-// ---------------------------------------------------------------------------
-// What this page decides per rater, and why.
-//
-// PLAN. The build enumerates a small set of plans (which texts go to part 1,
-// which go to part 2, and which model each pair uses). A rater draws one at
-// random. Two consequences: no rater ever meets the same text in both parts -
-// hearing the real voice read a passage in part 1 would give away the answer
-// for that passage in part 2 - and across raters every text is used in both
-// roles with every model. ?plan=N forces a plan, for testing or for balancing
-// the last few sessions by hand.
-//
-// ORDER. Fixed order would make scale calibration at the start, fatigue at the
-// end and contrast between neighbours hit the same items every time, turning
-// those effects into a systematic bias instead of noise. Shuffled per rater.
-//
-// SIDES. The A/B slots of every pair are flipped per rater, so no side bias can
-// build up and the operator cannot learn "this pair's real one is on the left"
-// over many sessions. The page is not told which file is real; it only records
-// that it swapped, so the analysis can undo it.
-//
-// REPEATS. Two items from part 1 are presented a second time. The two ratings
-// of the same stimulus by the same rater give an intra-rater reliability
-// estimate, which costs 20 seconds and tells you how much of the spread in the
-// results is just rating noise.
-// ---------------------------------------------------------------------------
+// Randomized per rater: which plan (which texts go to part 1 and part 2, and
+// which model each pair uses), the item order, the A/B side of each pair, and
+// which two items are repeated. The page is never told which file is real - it
+// only records that it swapped the slots, so the analysis can undo it.
+// ?plan=N forces a plan. See docs/METHODS.md section 6.
 
 const N_REPEATS = 2;
 
@@ -149,16 +129,10 @@ const PLAN = Number.isInteger(forced) && MANIFEST.plans[forced]
 const RATER_ID = "R-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 document.getElementById("rater-id").textContent = RATER_ID;
 
-// Part 1: the plan's items, shuffled, plus N_REPEATS of them shown a second
-// time. A repeat is a separate row with its own slot id but the same stimulus.
-//
-// The repeat must not land near its original. A rater who hears the same clip
-// again three items later still remembers the number they gave, so the two
-// ratings agree because of memory, not because the scale is stable - and the
-// reliability estimate comes out too good. Simulating the naive version (shuffle
-// everything together) gave 7 % of repeats back-to-back and 20 % within three
-// positions. So the originals are placed first and each repeat is then inserted
-// only into a position at least MIN_REPEAT_GAP away from it.
+// A repeat must not land near its original, or the two ratings agree from
+// memory and the reliability estimate comes out too good. Shuffling everything
+// together put 7 % of repeats back-to-back. Instead the originals are placed
+// first and each repeat is inserted at least MIN_REPEAT_GAP away.
 const MIN_REPEAT_GAP = 6;
 
 function withSeparatedRepeats(ids, nRepeats, minGap) {
@@ -233,9 +207,8 @@ function updateProgress() {
   const done = answeredNmos();
   document.getElementById("nmos-counter").textContent = `(${done} / ${NMOS_ORDER.length})`;
   if (done === NMOS_ORDER.length) {
-    // Part 2 stays locked until part 1 is finished: a rater who has heard the
-    // pairs first knows what the real voice sounds like and rates part 1 with
-    // that reference in mind.
+    // Part 2 stays locked until part 1 is done: a rater who hears the pairs
+    // first knows what the real voice sounds like.
     document.getElementById("part2").classList.remove("hidden");
     document.getElementById("part2-lock").classList.add("hidden");
   }

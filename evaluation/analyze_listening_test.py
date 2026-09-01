@@ -1,44 +1,21 @@
-"""Joins the collected ratings with the hidden key and reports N-MOS + Turing results.
+"""Joins the collected ratings with the hidden key and reports the results.
 
 Usage:
     uv run python evaluation/analyze_listening_test.py
 
-Reads evaluation/results/listening_test/key.json plus every rating in
-responses/ (all_ratings.jsonl written by the server, and any ratings_*.json
-sent back by remote raters), then writes:
+Reads key.json plus every rating in responses/, then writes nmos_summary.csv,
+nmos_pairwise.csv, turing_summary.csv, turing_familiarity.csv, reliability.csv
+and ratings_long.csv.
 
-    nmos_summary.csv      mean naturalness per condition, incl. the real voice
-    nmos_pairwise.csv     condition differences in MOS points, with CI
-    turing_summary.csv    fooling rate per model, with CI, overall and by group
-    reliability.csv       intra-rater agreement from the hidden repeats
-    ratings_long.csv      one row per answer, for your own analysis / the report
+Intervals come from a two-way cluster bootstrap over raters and texts. The
+answers are not independent - each rater answers many items and each item is
+answered by many raters - so pooling them as independent observations gives
+intervals that are too narrow. Coverage was checked by simulation on this design
+(tools/check_ci_coverage.py): 0.99 against a nominal 0.95, i.e. conservative.
 
-Why the statistics are not simply means and Wilson intervals
-------------------------------------------------------------
-The answers are not independent. Each rater answers many items, and each item is
-answered by many raters, so the same opinion and the same stimulus reappear
-across rows. Treating every row as one independent observation makes the
-intervals too narrow - the previous version of this file said so in its own
-comment, which is worse than reporting no interval at all.
-
-Intervals here come from a two-way cluster bootstrap: every replicate resamples
-raters with replacement AND texts with replacement, then recomputes the
-statistic. That propagates both "these particular people" and "these particular
-sentences" into the interval. It is the honest version of the same number and
-needs no extra dependency.
-
-Its coverage was checked by simulation on this exact design
-(evaluation/check_ci_coverage.py): 0.99 against a nominal 0.95, i.e. the interval
-is CONSERVATIVE - too wide rather than too narrow. Resampling raters only gave
-0.93. Being conservative costs sensitivity, and it is reported here rather than
-tuned away: an interval that is too wide can only make a claim weaker, while a
-narrow one manufactures findings. The same script reports the detectable effect
-(about 0.30 MOS points at 30 raters).
-
-If statsmodels is installed, a mixed model is also fitted as a confirmatory
-check (naturalness ~ condition with random intercepts for rater and text; a
-GEE logit clustered by rater for the Turing answers). The bootstrap remains the
-headline number, because it makes fewer assumptions about this small a study.
+Pairwise comparisons are paired within rater and their verdict is
+Bonferroni-adjusted. If statsmodels is installed, a mixed model is also fitted as
+a confirmatory check. See docs/METHODS.md section 7.
 """
 
 import csv

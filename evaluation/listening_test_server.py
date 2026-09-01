@@ -1,26 +1,15 @@
-"""Local server for running the listening test in person, back-to-back with
-many raters on one machine: no manual download/move step, every submission is
-saved and the summaries are updated automatically.
+"""Local server for running the listening test in person, rater after rater.
 
 Usage:
-    uv run python evaluation/prepare_listening_test.py   # build the test once
-    uv run python evaluation/listening_test_server.py    # start the server
+    uv run python evaluation/listening_test_server.py
 
-Then, for each rater in turn: open http://localhost:8765 in a browser, hand them
-the keyboard - they enter their own scores, you do not - and when they click
-"Ergebnisse speichern" the answers are appended to
-evaluation/results/listening_test/responses/all_ratings.jsonl. The button then
-turns into a reset button for the next person. Keep the terminal running for the
-whole study; stop with Ctrl+C.
+Open http://localhost:8765 for each rater in turn. The rater enters their own
+scores; when they submit, the answers are appended to
+responses/all_ratings.jsonl and the button turns into a reset for the next
+person. Add ?plan=2 to force a specific rater plan.
 
-The page draws one of the prepared rater plans at random, so you do not have to
-assign anything. To force a plan (e.g. to even out the last few sessions), open
-http://localhost:8765/?plan=2.
-
-Summaries are recomputed after every submission in a background thread. The
-interval estimates use a bootstrap that takes a few seconds, and no rater should
-sit in front of a spinning browser tab for that - so the answer is sent first
-and the CSVs are updated right after.
+Summaries are recomputed in a background thread: the bootstrap takes a few
+seconds and no rater should wait for it.
 """
 
 import errno

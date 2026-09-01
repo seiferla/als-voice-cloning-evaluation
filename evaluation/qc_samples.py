@@ -1,33 +1,22 @@
-"""Screens every candidate listening-test stimulus and flags the broken ones,
-BEFORE you build the test.
+"""Screens every candidate stimulus and flags the broken ones.
 
 Usage:
-    uv sync --extra eval                            # needs pyloudnorm
     uv run python evaluation/qc_samples.py
 
-Writes evaluation/results/qc_report.csv (one row per stimulus: duration,
-BS.1770 loudness, peak, silence ratio, clipping, plus flags) and, on the
-first run, an exclusions.json template listing the auto-flagged stimuli.
+Writes qc_report.csv (duration, BS.1770 loudness, peak, silence ratio, clipping,
+plus flags) and, on the first run, an exclusions.json template.
 
-Why screen at all: a stimulus that failed to synthesize properly measures a
-defect of your pipeline, not of the model's voice quality, and one bad item
-drags a model's mean down for the wrong reason. Screening is standard - but
-it only stays honest if the exclusion criteria are fixed in advance and are
-about *technical failure*, never about "this one sounds bad" (that is exactly
-what the raters are there to judge).
+Auto-flagged, each checkable without listening:
+    quiet          cannot reach target loudness without clipping
+    silence_heavy  much more silence than the same text from other models
+    duration_off   much shorter or longer than the same text from other models
+    clipping       already clipped in the source
+    near_silent    essentially no speech
 
-Auto-flagged (each is a technical failure, checkable without listening):
-    quiet          - cannot reach target loudness without clipping
-    silence_heavy  - much more silence than the same text from other models
-    duration_off   - much shorter/longer than the same text from other models
-                     (catches truncated or runaway renders)
-    clipping       - already clipped in the source
-    near_silent    - essentially no speech at all
-
-Flags are a shortlist for YOU to listen to, not an automatic verdict. Edit
-exclusions.json to confirm or drop each one, then run
-prepare_listening_test.py, which honors that file and records it alongside
-the results.
+Only quiet, near_silent and clipping are pre-filled for exclusion. The other two
+usually mean the model speaks slower or pauses more, which raters should judge.
+Flags are a shortlist to listen to, not a verdict - edit exclusions.json
+yourself. Exclusion criteria are fixed in advance in PREREGISTRATION.md.
 """
 
 import csv

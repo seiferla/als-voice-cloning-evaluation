@@ -1,31 +1,17 @@
-"""Step 1 of 2 for short listening-test stimuli: choose one excerpt per text and
-locate it in every rendition. The actual cut happens in prepare_listening_test.py.
+"""Chooses one excerpt per text and locates it in every rendition.
 
 Usage:
-    uv sync --extra eval
-    uv run python evaluation/run_eval.py          # produce audio first
-    uv run python evaluation/select_excerpts.py   # this script (slow, ASR pass)
-    uv run python evaluation/qc_samples.py
-    uv run python evaluation/prepare_listening_test.py
+    uv run python evaluation/select_excerpts.py
 
-Why excerpts at all: the full renders here run 12-92 s (36 s median). Rating 45
-of those plus 15 A/B pairs is ~46 minutes of pure audio per rater, which no
-rater gets through without fatigue, and a single 36 s sample is not one
-judgement anyway - the rater hears a good opening, a glitch at 0:20 and odd
-prosody at 0:30, then has to compress that into one number. ITU-T P.800 puts
-ACR stimuli at roughly 5-10 s for exactly this reason.
+The cut itself happens in prepare_listening_test.py. Output is excerpts.json,
+with the ASR pass cached in alignments/ so re-runs are instant.
 
-Why not simply "the first 10 seconds": see excerpt.py - the models speak the
-same text at different rates, so a fixed window compares different content and
-cuts mid-word more often for the slower model.
+Two findings are reported and excluded rather than worked around: a rendition
+where too little of the excerpt is found did not say it, and one where the words
+are all there but stretched over more than twice the per-text median span is a
+runaway render.
 
-Output: evaluation/results/excerpts.json (spans per stimulus) plus a cache in
-evaluation/results/alignments/ so re-runs are instant. Both are gitignored.
-
-A rendition where too little of the excerpt is found did not say it - the model
-skipped or garbled that passage. That is reported here and excluded from the
-test rather than silently replaced by a time window; feed it into
-exclusions.json if listening confirms it.
+Why excerpts and how the length is derived: docs/METHODS.md section 3.
 """
 
 import json

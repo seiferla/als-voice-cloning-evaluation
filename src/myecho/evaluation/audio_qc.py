@@ -1,44 +1,19 @@
-"""Level measurement and normalization for listening-test stimuli.
+"""Loudness and pause-floor matching for listening-test stimuli.
 
-Why this exists: loudness differences confound subjective ratings. A quieter
-sample is rated less natural almost regardless of its actual quality, so any
-systematic level difference between models turns into a fake quality
-difference. This material has one: qwen3 renders about 7 dB quieter than
-s2pro and voxtral, and the real reference recordings sit between them (which
-would also leak a "the louder one is fake" cue into the Turing test).
+Two things are equalized across every stimulus before a listening test, because
+either of them would otherwise be rated instead of the voice:
 
-So every stimulus gets normalized to one common loudness before a listening
-test. Loudness is ITU-R BS.1770-4 integrated loudness (pyloudnorm), not plain
-RMS, because its gating ignores silence - a broken render that is half
-silence is then measured on its speech instead of its gaps.
+    level        a quieter sample is rated less natural regardless of quality
+    pause floor  the real recordings are denoised phone memos and the clones are
+                 generated clean, which leaves the gaps between words as a
+                 giveaway
 
-Normalization only removes the gain confound. Genuine defects (gappy or
-breathy speech, artifacts) survive it and still get heard and rated, which is
-what we want. A file that cannot reach the target without clipping is
-reported, not silently rescued - see qc_samples.py.
+Loudness is ITU-R BS.1770-4 integrated loudness (pyloudnorm), not RMS: its
+gating ignores silence, so a gappy render is measured on its speech. Noise is
+only ever added to a pause floor, never removed - lowering one would mean
+denoising one condition and not the others.
 
-Level is not the only channel confound, and it was not the worst one. The real
-recordings are 2021 phone voice memos put through DeepFilterNet, the clones are
-generated clean. Measured on the first stimulus set, that left the pauses
-telling the rater the answer:
-
-    source   pause fraction   speech - pause floor
-    REAL     0.22             39.4 dB
-    s2pro    0.08             33.0 dB
-    voxtral  0.15             28.7 dB
-    qwen3    0.10             29.6 dB
-
-A single threshold on either column separates real from clone with 96 %
-accuracy, so a rater could win the Turing test on "which one has clean gaps"
-without ever judging the voice. And the cue is our own doing: denoising lifts
-the real recordings from 0.132 / 30.6 dB to 0.219 / 36.8 dB, i.e. the denoiser
-gives them digitally silent pauses that no TTS model produces.
-
-So every stimulus also gets its pause floor matched to one common value by
-adding shaped noise (never by removing any). After that the pause *structure* -
-how often and how long the voice stops - still differs, which is right: that is
-a property of the model that raters should hear. What is gone is the recording
-chain that only the real side went through.
+Measured numbers and the reasoning: docs/METHODS.md sections 4 and 5.
 """
 
 import zlib
@@ -89,19 +64,12 @@ def _frame_db(x, sr):
 
 
 def speech_and_pause_level(x, sr):
-    """(speech_dbfs, pause_dbfs) - the level of the speech and of the gaps.
+    """(speech_dbfs, pause_dbfs), as medians of the active and the silent frames.
 
-    Medians, not means: one loud breath or one click in an otherwise silent gap
-    should not decide what "the floor" of a stimulus is.
-
-    Some renders have no frame below the silence threshold at all - either they
-    never stop speaking, or their noise floor is itself above the threshold. In
-    that case the quiet tail of the frame distribution is used instead. Falling
-    back to "unknown" would be worse than a rough estimate: the caller would
-    then treat the floor as silent and add noise to a stimulus that is already
-    noisy, which is the opposite of matching it.
-
-    pause_dbfs is None only for a signal with no measurable content at all.
+    Medians so one loud breath in a gap does not decide the floor. A render with
+    no frame below the threshold falls back to the quiet tail of the frame
+    distribution - treating the floor as unknown would make the caller add noise
+    to a stimulus that is already noisy.
     """
     frame_db = _frame_db(x, sr)
     active = frame_db > SILENCE_THRESHOLD_DBFS
@@ -245,18 +213,11 @@ def normalize(x, sr, target_lufs=TARGET_LUFS, peak_ceiling_dbfs=PEAK_CEILING_DBF
 
 def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COMMON_SR,
                      span=None, target_pause_snr_db=TARGET_PAUSE_SNR_DB):
-    """Read, resample, cut a span, normalize the level, match the pause floor, write.
+    """Read, resample, cut, normalize the level, match the pause floor, write.
 
-    The order is deliberate:
-
-    1. resample - one audio bandwidth for every system
-    2. cut - BEFORE normalization, because BS.1770 integrated loudness is
-       measured over the whole signal; normalizing a 36 s render and then
-       cutting 10 s out of it would leave the excerpts at different levels
-       again, which is the confound this module exists to remove
-    3. normalize - one loudness for every system
-    4. match the pause floor - one recording chain for every system, so the
-       Turing test cannot be won on "the real one has clean gaps"
+    The cut runs before normalization because BS.1770 loudness is integrated
+    over the whole signal: normalizing a 36 s render and then cutting 10 s out
+    of it would leave the excerpts at different levels again.
 
     span is {"start", "end"} in seconds, from select_excerpts.py.
     """

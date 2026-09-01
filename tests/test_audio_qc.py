@@ -14,7 +14,6 @@ from myecho.evaluation.audio_qc import (
     measure,
     normalize,
     speech_and_pause_level,
-    to_common_sr,
 )
 
 SR = 24000
@@ -90,13 +89,6 @@ def test_noise_matching_does_not_move_the_speech_level():
     before, _ = speech_and_pause_level(x, SR)
     after, _ = speech_and_pause_level(y, SR)
     assert after == pytest.approx(before, abs=0.5)
-
-
-def test_resampling_hits_the_common_rate():
-    x = speech_with_pauses(sr=44100, seconds=2.0)
-    y, sr = to_common_sr(x, 44100, 24000)
-    assert sr == 24000
-    assert len(y) == pytest.approx(2.0 * 24000, rel=0.01)
 
 
 def test_silence_ratio_sees_the_pauses():

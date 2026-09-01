@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from myecho.evaluation.excerpt import cut, locate_span, select_excerpt, split_sentences
+from myecho.evaluation.excerpt import cut, locate_span, select_excerpt
 
 # Roughly the shape of the real material: spontaneous speech, short sentences.
 TEXT = (
@@ -37,10 +37,6 @@ def test_a_run_on_sentence_falls_back_to_commas():
     excerpt = select_excerpt(run_on)
     assert excerpt["boundary"] in ("comma", "word")
     assert excerpt["n_words"] > 0
-
-
-def test_split_sentences_ignores_empty_pieces():
-    assert split_sentences("Eins. Zwei!  Drei?  ") == ["Eins.", "Zwei!", "Drei?"]
 
 
 def _words(text, start=0.0, step=0.5):

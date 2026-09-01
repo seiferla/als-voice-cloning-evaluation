@@ -59,12 +59,10 @@ class VoxtralTTS:
         t_finish = time.perf_counter()
 
         audio_data = base64.b64decode(response.audio_data)
-        # latency: Sekunden (Request -> Response)
-        # rtf:     Real-Time-Factor = latency_s / audio_duration_s (dimensionslos)
-        # audio_duration_s: Sekunden
-        # ttfa: not measurable - the Mistral endpoint is not streaming, so the
-        # first audio byte arrives together with the last one. Stays None so the
-        # eval CSV shows an honest gap instead of a value equal to latency.
+        # latency and audio_duration_s are in seconds; rtf is their ratio.
+        # ttfa is not measurable here: the Mistral endpoint does not stream, so
+        # the first audio byte arrives with the last one. Left None rather than
+        # set equal to latency.
         metrics = {
             "latency": t_finish - t_request,
             "ttfa": None,

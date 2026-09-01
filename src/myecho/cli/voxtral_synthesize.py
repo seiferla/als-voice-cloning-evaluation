@@ -10,21 +10,21 @@ from myecho.models.voxtral import VoxtralTTS
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Voxtral TTS Synthese-Runner")
+    parser = argparse.ArgumentParser(description="Voxtral TTS synthesis runner")
     parser.add_argument(
         "--text",
         default="Hallo, das ist ein automatisierter Voxtral Synthese-Test.",
-        help="Zu synthetisierender Text.",
+        help="Text to synthesize.",
     )
     parser.add_argument(
         "--voice-id",
         default=VOXTRAL_VOICE_ID,
-        help="Voice ID (default: aus .env VOXTRAL_VOICE_ID).",
+        help="Voice ID (default: VOXTRAL_VOICE_ID from .env).",
     )
     parser.add_argument(
         "--out",
         default="outputs/voxtral_test.wav",
-        help="Ausgabe-Pfad für die WAV-Datei.",
+        help="Output path for the WAV file.",
     )
     return parser.parse_args()
 
@@ -38,10 +38,10 @@ def main() -> int:
     args = parse_args()
 
     if not VOXTRAL_API_KEY:
-        print("ERROR: VOXTRAL_API_KEY fehlt in .env", file=sys.stderr)
+        print("ERROR: VOXTRAL_API_KEY missing in .env", file=sys.stderr)
         return 2
     if not args.voice_id:
-        print("ERROR: VOXTRAL_VOICE_ID fehlt (in .env oder --voice-id)", file=sys.stderr)
+        print("ERROR: VOXTRAL_VOICE_ID missing (set it in .env or pass --voice-id)", file=sys.stderr)
         return 2
 
     result = asyncio.run(_run(args.text, args.voice_id, args.out))
@@ -60,7 +60,7 @@ def main() -> int:
         "metrics: "
         f"latency={latency_s:.3f} s | "
         f"audio_duration={duration_s:.3f} s | "
-        f"rtf={rtf:.3f} (processing_time / audio_duration, dimensionslos)"
+        f"rtf={rtf:.3f} (processing_time / audio_duration)"
         if latency_s is not None and duration_s is not None and rtf is not None
         else f"metrics={m}"
     )

@@ -1,25 +1,19 @@
-"""Picks one coherent excerpt per evaluation text and finds it in every rendition.
+"""Choosing one excerpt per evaluation text and locating it in every rendition.
 
-Why not a fixed time window ("the first 10 seconds"): the three models speak
-the same text at different rates - in this material the per-text spread is
-1.16x at the median and up to 1.53x - so a fixed window holds a different
-AMOUNT of content per model, and it lands mid-word more often for the slower
-ones. Both push the slower model's rating down for a reason that has nothing
-to do with its voice quality.
+The excerpt is picked on the TEXT, before any audio is touched, so the choice
+cannot favour a model. It is then found in each rendition by word-level ASR
+timestamps and cut at word boundaries, which keeps the content identical across
+models and lets the duration differ - speaking rate is a property of the voice.
 
-So the excerpt is chosen once on the TEXT, before any audio is touched. The
-choice therefore cannot favour a model. It is then located in each rendition
-by word-level ASR timestamps and cut at word boundaries. That keeps the
-CONTENT identical across models and lets the DURATION differ - and differing
-duration is correct here, because speaking rate is a real property of the
-voice that the raters should hear.
+A fixed time window is not used: the models differ in speaking rate by up to
+1.53x on the same text, so a fixed window would hold different content per model
+and cut mid-word more often for the slower one.
 
-Excerpts are built from whole sentences wherever possible. These transcripts
-are ASR output of spontaneous voice memos: the median sentence is 8 words, and
-two of the sixteen texts have almost no sentence punctuation at all (one has a
-3-word and a 49-word "sentence"). A single sentence is therefore usually too
-short and occasionally far too long, so consecutive sentences are merged up to
-the target length and an over-long sentence is split at its commas.
+Excerpts are whole sentences where possible. These transcripts are ASR output of
+spontaneous speech, so sentences are short and occasionally very long; runs of
+sentences are merged up to the target and an over-long one is split at commas.
+
+Details: docs/METHODS.md section 3.
 """
 
 import difflib

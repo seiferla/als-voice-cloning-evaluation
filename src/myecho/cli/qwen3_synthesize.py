@@ -10,21 +10,21 @@ from myecho.models.qwen3 import Qwen3TTS
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Qwen3 (DashScope) TTS Synthese-Runner")
+    parser = argparse.ArgumentParser(description="Qwen3 (DashScope) TTS synthesis runner")
     parser.add_argument(
         "--text",
         default="Hallo, das ist ein automatisierter Qwen3 Synthese-Test.",
-        help="Zu synthetisierender Text.",
+        help="Text to synthesize.",
     )
     parser.add_argument(
         "--voice-id",
         default=QWEN3_VOICE_ID,
-        help="Voice ID (default: aus .env QWEN3_VOICE_ID).",
+        help="Voice ID (default: QWEN3_VOICE_ID from .env).",
     )
     parser.add_argument(
         "--out",
         default="outputs/qwen3_test.wav",
-        help="Ausgabe-Pfad für die WAV-Datei.",
+        help="Output path for the WAV file.",
     )
     return parser.parse_args()
 
@@ -38,10 +38,10 @@ def main() -> int:
     args = parse_args()
 
     if not QWEN3_API_KEY:
-        print("ERROR: QWEN3_API_KEY fehlt in .env", file=sys.stderr)
+        print("ERROR: QWEN3_API_KEY missing in .env", file=sys.stderr)
         return 2
     if not args.voice_id:
-        print("ERROR: QWEN3_VOICE_ID fehlt (in .env oder --voice-id)", file=sys.stderr)
+        print("ERROR: QWEN3_VOICE_ID missing (set it in .env or pass --voice-id)", file=sys.stderr)
         return 2
 
     result = asyncio.run(_run(args.text, args.voice_id, args.out))
@@ -65,7 +65,7 @@ def main() -> int:
     if duration_s is not None:
         parts.append(f"audio_duration={duration_s:.3f} s")
     if rtf is not None:
-        parts.append(f"rtf={rtf:.3f} (processing_time / audio_duration, dimensionslos)")
+        parts.append(f"rtf={rtf:.3f} (processing_time / audio_duration)")
     print("metrics: " + " | ".join(parts) if parts else f"metrics={m}")
     return 0 if ok else 1
 

@@ -1,63 +1,26 @@
-"""Objective evaluation: synthesizes each text with each model and computes
-SIM / WER / latency, alongside the anchors those numbers need to be readable.
+"""Objective evaluation: synthesizes each text with each model, computes SIM,
+WER and latency, and scores the anchors those numbers need to be readable.
 
 Usage:
-    uv run python evaluation/run_eval.py
-    uv run python evaluation/run_eval.py --repeats 3      # recommended final run
+    uv run python evaluation/run_eval.py --repeats 3
 
-Fill in evaluation/testset.json first (one or more cases, each with its own
-reference audio + texts to synthesize).
+Fill in evaluation/testset.json first. Voice IDs come from .env
+(S2PRO_REFERENCE_ID, VOXTRAL_VOICE_ID, QWEN3_VOICE_ID) and can be overridden per
+case. A model without a voice ID is skipped.
 
-Voice IDs come from .env by default (S2PRO_REFERENCE_ID, VOXTRAL_VOICE_ID,
-QWEN3_VOICE_ID) and can be overridden per case in testset.json. A model whose
-voice ID is missing is skipped, so a partial run is still possible.
+Two extra conditions go into the same table, because a bare SIM or WER value has
+no scale (docs/METHODS.md section 2):
 
-A case's texts come from either an inline "texts" list of strings, or a
-"texts_file" pointing to a JSON file with {"texts": [{"id": ..., "text": ...}, ...]}.
-Use texts_file for real/personal texts so they can live under data/ (gitignored)
-instead of in this tracked testset.json. The listening-test scripts additionally
-need a "source_audio" per text, so prefer texts_file.
+    REAL      the speaker's own other recordings - the SIM upper bound and the
+              WER floor
+    IMPOSTOR  a different speaker, optional via "impostor_audio" - the SIM lower
+              bound
 
-Anchors: why the plain numbers are not enough
----------------------------------------------
-SIM is a cosine similarity between ECAPA embeddings. 0.70 is not good or bad by
-itself - the scale has no fixed meaning, it depends on the speaker, the
-recording and the checkpoint. WER is measured by an ASR system that also makes
-mistakes on real speech, and the test texts here are transcripts of spontaneous
-voice memos, which are harder to recognize than anything a TTS model reads out.
+--repeats controls renders per text. These APIs sample, so with one render the
+model's own variance is invisible. The default is 1 so an exploratory run does
+not triple the API bill; 3 is the setting to report.
 
-So this runner also evaluates two extra conditions, written into the same table:
-
-    REAL       the speaker's other recordings, scored exactly like a model.
-               Its SIM is the upper bound (how similar the same person is to
-               themselves across two recordings) and its WER is the floor (how
-               well the ASR recovers the target text from real speech).
-               Measured here: WER floor ~0.18 with whisper-small, while the
-               better clones score ~0.09 - i.e. the clones are EASIER to
-               transcribe than the human original, because reading a transcript
-               produces cleaner speech than speaking spontaneously. Without
-               this row, that inversion is invisible and WER looks like
-               intelligibility when it is closer to "distance from read speech".
-
-    IMPOSTOR   a different speaker, optional. Its SIM is the lower bound: what
-               the metric returns for someone who is not the target at all.
-               Set "impostor_audio" in the case to a file or a glob (e.g. a few
-               Common Voice DE clips). Without it, the bottom of the SIM scale
-               is unknown and the reported similarity cannot be calibrated.
-
-Repetitions
------------
-These are sampling TTS systems: the same text gives a different render every
-time. With --repeats 1 the model-internal variance is invisible and a single
-unlucky render looks like a property of the model. --repeats 3 is the
-recommended setting for the run you report; the default stays 1 so an
-exploratory run does not silently triple the API bill.
-
-Output
-------
-evaluation/results/results_<timestamp>.csv  per render, plus the REAL/IMPOSTOR rows
-evaluation/results/results_latest.csv       a copy, for scripts
-evaluation/results/eval_run_meta.json       git commit, seed, input hashes, settings
+Output: results_<timestamp>.csv, results_latest.csv, eval_run_meta.json.
 """
 
 import argparse

@@ -10,21 +10,21 @@ from myecho.models.s2_pro import S2ProTTS
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="S2-Pro (Fish Audio) TTS Synthese-Runner")
+    parser = argparse.ArgumentParser(description="S2-Pro (Fish Audio) TTS synthesis runner")
     parser.add_argument(
         "--text",
         default="Hallo, das ist ein automatisierter S2-Pro Synthese-Test.",
-        help="Zu synthetisierender Text.",
+        help="Text to synthesize.",
     )
     parser.add_argument(
         "--reference-id",
         default=S2PRO_REFERENCE_ID,
-        help="Reference/Model ID (default: aus .env S2PRO_REFERENCE_ID).",
+        help="Reference/model ID (default: S2PRO_REFERENCE_ID from .env).",
     )
     parser.add_argument(
         "--out",
         default="outputs/s2pro_test.mp3",
-        help="Ausgabe-Pfad für die MP3-Datei.",
+        help="Output path for the MP3 file.",
     )
     parser.add_argument("--speed", type=float, default=1.0, help="Sprechgeschwindigkeit.")
     parser.add_argument("--volume", type=float, default=0.0, help="Lautstärke-Offset (dB).")
@@ -41,10 +41,10 @@ def main() -> int:
     args = parse_args()
 
     if not S2PRO_API_KEY:
-        print("ERROR: S2PRO_API_KEY fehlt in .env", file=sys.stderr)
+        print("ERROR: S2PRO_API_KEY missing in .env", file=sys.stderr)
         return 2
     if not args.reference_id:
-        print("ERROR: S2PRO_REFERENCE_ID fehlt (in .env oder --reference-id)", file=sys.stderr)
+        print("ERROR: S2PRO_REFERENCE_ID missing (set it in .env or pass --reference-id)", file=sys.stderr)
         return 2
 
     result = asyncio.run(_run(args.text, args.reference_id, args.out, args.speed, args.volume))
@@ -68,7 +68,7 @@ def main() -> int:
     if duration_s is not None:
         parts.append(f"audio_duration={duration_s:.3f} s")
     if rtf is not None:
-        parts.append(f"rtf={rtf:.3f} (processing_time / audio_duration, dimensionslos)")
+        parts.append(f"rtf={rtf:.3f} (processing_time / audio_duration)")
     print("metrics: " + " | ".join(parts) if parts else f"metrics={m}")
     return 0 if ok else 1
 

@@ -1,32 +1,21 @@
-"""Checks the built listening test against the properties it is supposed to have.
+"""Checks the built listening test before the first rater.
 
 Usage:
-    uv run python evaluation/prepare_listening_test.py
-    uv run python evaluation/verify_build.py
+    uv run python evaluation/check_listening_test.py
 
-Run this before the first rater. Every property below was a real defect at some
-point in this repo, and none of them can be repaired after data collection
-starts - the stimulus set is frozen from the first submission.
+Two parts:
 
-    blinding        no condition name, text id or role word appears in the page,
-                    in a sample filename or in share.zip. The first version
-                    shipped turing_03_real.wav in the manifest.
-    no key leak     share.zip does not contain key.json
-    role split      no rater plan uses the same text in part 1 and part 2. With
-                    matched excerpts and the real voice as a condition, part 1
-                    would otherwise contain the answer to part 2.
-    coverage        every text x model cell has a pair, so the interval is over
-                    all texts and not over a handful
-    balance         each model appears equally often across plans, and each
-                    condition has the same number of naturalness items
-    files           every id in the manifest exists on disk, and nothing on disk
-                    is unreferenced
-    levels          all stimuli within 1 LU of the loudness target and within a
-                    narrow band of the pause-floor target
+1. Invariants - properties the stimulus set must have. Exits non-zero if any
+   fails, so it can gate a script. None of them can be repaired once ratings
+   have been collected.
+2. Cue audit - can a single low-level measurement tell the real recordings from
+   the clones? A cue near the guessing baseline is gone; a cue clearly above it
+   has to be mitigated or reported with the results.
 
-Exits non-zero if any check fails, so it can gate a script or a CI job.
+Reasoning and measured numbers: docs/METHODS.md section 5.
 """
 
+import csv
 import json
 import re
 import sys
@@ -34,7 +23,18 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from myecho.evaluation.audio_qc import (  # noqa: E402
+    SILENCE_THRESHOLD_DBFS,
+    _frame_db,
+    load_mono,
+)
+
 OUT_DIR = Path(__file__).parent / "results" / "listening_test"
+AUDIT_CSV = OUT_DIR / "cue_audit.csv"
 
 LOUDNESS_TOLERANCE_LU = 1.0
 PAUSE_SNR_TOLERANCE_DB = 4.0
@@ -42,6 +42,102 @@ PAUSE_SNR_TOLERANCE_DB = 4.0
 # Words that must never reach a rater. "real"/"clone"/"fake" are checked as whole
 # words so an unrelated substring in the page text cannot trip the check.
 ROLE_WORDS = ("real", "clone", "fake", "echt", "synth")
+
+
+FEATURES = {
+    "silence_ratio": "share of frames below the silence threshold (pause structure)",
+    "pause_snr_db": "speech level minus pause floor (recording chain)",
+    "hf_tilt_db": "energy 4-8 kHz relative to the whole band (brightness)",
+    "lf_tilt_db": "energy 50-300 Hz relative to the whole band (body)",
+    "duration_s": "stimulus length (speaking rate)",
+    "level_std_db": "spread of the frame levels (dynamics)",
+}
+
+
+def features(path):
+    x, sr = load_mono(path)
+    frame_db = _frame_db(x, sr)
+    active = frame_db > SILENCE_THRESHOLD_DBFS
+
+    frame = max(int(0.02 * sr), 1)
+    frames = x[: len(x) // frame * frame].reshape(-1, frame)[active]
+    spectrum = np.abs(np.fft.rfft(frames * np.hanning(frame), axis=1)) ** 2
+    freqs = np.fft.rfftfreq(frame, 1 / sr)
+    total = 10 * np.log10(max(spectrum.mean(), 1e-20))
+
+    def band(lo, hi):
+        mask = (freqs >= lo) & (freqs < hi)
+        return 10 * np.log10(max(spectrum[:, mask].mean(), 1e-20)) - total
+
+    speech = float(np.median(frame_db[active])) if active.any() else float("nan")
+    pause = float(np.median(frame_db[~active])) if (~active).sum() >= 3 else float("nan")
+
+    return {
+        "silence_ratio": float((~active).mean()),
+        "pause_snr_db": speech - pause,
+        "hf_tilt_db": band(4000, 8000),
+        "lf_tilt_db": band(50, 300),
+        "duration_s": len(x) / sr,
+        "level_std_db": float(np.std(frame_db[active])) if active.any() else float("nan"),
+    }
+
+
+def best_threshold_accuracy(values, is_real):
+    """Accuracy of the best single threshold, and its direction.
+
+    Both directions are tried, so the number answers "could one number
+    separate these at all", not "does a high value mean real".
+    """
+    values = np.asarray(values, dtype=float)
+    is_real = np.asarray(is_real, dtype=int)
+    usable = np.isfinite(values)
+    values, is_real = values[usable], is_real[usable]
+    if len(values) == 0:
+        return float("nan"), 0
+    best, direction = 0.0, 0
+    for threshold in np.unique(values):
+        for sign in (1, -1):
+            accuracy = (((sign * (values - threshold) > 0).astype(int)) == is_real).mean()
+            if accuracy > best:
+                best, direction = float(accuracy), sign
+    return best, direction
+
+
+def run_cue_audit(key):
+    """Report whether one low-level measurement separates real from clone.
+
+    A lower bound on what a listener could exploit - one threshold on one feature
+    is a weak attacker - but enough to catch a cue that dominates the test.
+    """
+    real_condition = key.get("real_condition", "REAL")
+    rows = []
+    for stimulus_id, info in sorted(key["stimuli"].items()):
+        if info["role"] != "scored":
+            continue
+        path = OUT_DIR / "samples" / f"{stimulus_id}.wav"
+        if path.exists():
+            rows.append({"stimulus": stimulus_id, "condition": info["condition"],
+                         "text_id": info["text_id"], **features(path)})
+    if not rows:
+        print("  (no scored stimuli found)")
+        return
+
+    with open(AUDIT_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    is_real = [r["condition"] == real_condition for r in rows]
+    baseline = max(np.mean(is_real), 1 - np.mean(is_real))
+    print(f"  baseline (always answer 'clone') = {baseline:.3f}")
+    for name, description in FEATURES.items():
+        accuracy, _ = best_threshold_accuracy([r[name] for r in rows], is_real)
+        margin = accuracy - baseline
+        verdict = ("no usable cue" if margin <= 0.03 else
+                   "weak residual cue" if margin <= 0.10 else
+                   "STRONG CUE - mitigate or report it")
+        print(f"  {name:16s} acc={accuracy:.3f} ({margin:+.3f})  {verdict}")
+    print(f"  per-stimulus features -> {AUDIT_CSV}")
 
 
 class Report:
@@ -219,6 +315,9 @@ def main():
     check_files(report, manifest, key, OUT_DIR / "samples")
     check_levels(report, key, key.get("target_lufs", -23.0),
                  key.get("target_pause_snr_db", 26.0))
+
+    print("\nCue audit - could one measurement give the answer away?")
+    run_cue_audit(key)
 
     responses = OUT_DIR / "responses"
     collected = (any(responses.glob("*.json")) or (responses / "all_ratings.jsonl").exists()

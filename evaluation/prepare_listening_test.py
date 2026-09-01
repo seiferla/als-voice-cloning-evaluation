@@ -1,70 +1,29 @@
-"""Builds a blinded, randomized listening test (N-MOS + Turing test) from
-already-synthesized audio in evaluation/results/.
+"""Builds the blinded listening test from the audio in evaluation/results/.
 
-Usage (in-person, one machine, back-to-back raters):
-    uv run python evaluation/run_eval.py                # produce audio first
-    uv run python evaluation/select_excerpts.py         # choose + locate the excerpts
-    uv run python evaluation/qc_samples.py              # screen the stimuli
-    uv run python evaluation/prepare_listening_test.py  # build the test (run ONCE - see below)
-    uv run python evaluation/listening_test_server.py   # serve it, then open http://localhost:8765 per rater
+Usage:
+    uv run python evaluation/run_eval.py
+    uv run python evaluation/select_excerpts.py
+    uv run python evaluation/qc_samples.py
+    uv run python evaluation/prepare_listening_test.py     # run ONCE
+    uv run python evaluation/check_listening_test.py
 
-Stimuli are ~10 s excerpts, not the full renders (those run 12-92 s here). Each
-excerpt is chosen once per text and cut at word boundaries in every rendition,
-so every model is judged on identical content - see excerpt.py for why a fixed
-time window would bias the comparison against the slower model.
+Three design points, explained in docs/METHODS.md section 6:
 
-Three design decisions are worth reading before changing anything here.
+- The real voice is a rated condition, not only the answer key, so naturalness
+  has an upper reference.
+- Each rater draws one of the enumerated plans. A plan splits the texts between
+  the two parts, so no rater meets the same text twice, and across raters every
+  model is paired with every text.
+- Nothing in the shipped files says what anything is. Stimuli are named
+  s_001.wav, assigned after the shuffle; key.json holds the only mapping.
 
-**The real voice is a condition, not just the answer key.** It is rated for
-naturalness alongside the three models. Without it "qwen3 scores 4.1" has no
-ceiling to compare against, and the first question anyone asks is what the
-human original scores under the same conditions.
+Output goes to evaluation/results/listening_test/ (gitignored): samples/,
+index.html, key.json (hidden), run_meta.json, stimuli.csv, responses/ and
+share.zip for remote raters.
 
-**Rater plans instead of one list for everybody.** A rater who hears text T in
-part 1 and then has to spot the real voice for text T in part 2 has already
-heard the answer. So the texts are split per rater: half go to the N-MOS part,
-half to the Turing part, and no rater meets the same text in both. Which half,
-and which model each Turing pair uses, is fixed by a small set of enumerated
-plans (role group x model rotation). Every rater draws one plan at random, so
-across raters every text is used in both roles and every model is paired with
-every text - a Latin square, built here rather than left to chance.
-
-That replaces `models[i % len(models)]`, which assigned one model per text and
-so gave the Turing test only 5 distinct pairs per model. More raters could not
-fix that: the confidence interval was over 5 items however many people
-answered. With the rotation it is over all 15.
-
-**Nothing in the shipped files says what anything is.** Stimuli are named
-`s_001.wav`, assigned after the shuffle. The earlier version wrote
-`turing_03_real.wav` / `turing_03_clone.wav` into the page and the samples
-folder, so any rater who opened the page source or looked at an audio URL could
-read the answer.
-
-Output goes to evaluation/results/listening_test/ (gitignored, same as the
-rest of evaluation/results/):
-    samples/       - the stimuli, opaque names only
-    index.html     - self-contained rating UI (served locally, or opened directly
-                     in a browser as a fallback - see listening_test_server.py)
-    key.json       - HIDDEN mapping s_xxx -> condition/text. Needed for analysis,
-                     must NOT be shown to raters (it would unblind the test).
-    run_meta.json  - seed, git commit, input hashes: what this set was built from
-    stimuli.csv    - measured level, pause floor and excerpt span per stimulus
-    responses/     - one line per rater in all_ratings.jsonl, written by the
-                     server as each rater finishes; nmos_summary.csv and
-                     turing_summary.csv are regenerated after every submission.
-    share.zip      - index.html + samples/ only (no key.json), for raters who
-                     can't come in person. They rate on their own machine (no
-                     server, falls back to a manual ratings_*.json download) and
-                     send that file back - drop it into responses/, where
-                     analyze_listening_test.py picks it up.
-
-Re-running this script reshuffles everything and overwrites key.json, which
-desyncs any ratings already collected - it refuses to run once
-responses/ has data (pass --force once you are truly starting a fresh test).
-
-To recompute the summaries / print a full report at any time (also runs
-automatically after every submission through the server):
-    uv run python evaluation/analyze_listening_test.py
+Re-running reshuffles everything and overwrites key.json, which desyncs ratings
+already collected. It refuses to run once responses/ has data (--force
+overrides).
 """
 
 import argparse

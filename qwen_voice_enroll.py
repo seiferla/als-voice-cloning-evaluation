@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Voice-Enrollment für Qwen3-TTS-VC-Realtime (Model Studio, Region Singapur).
+"""Voice enrollment for Qwen3-TTS-VC-Realtime (Model Studio, Singapore region).
 
-Legt einen Voice-Clone an, der mit dem Realtime-WebSocket-Pfad
-(/api-ws/v1/realtime) nutzbar ist, und listet/löscht bestehende Voices.
+Creates a voice clone usable over the realtime WebSocket path
+(/api-ws/v1/realtime), and lists or deletes existing voices.
 
-Voraussetzung:
-    export DASHSCOPE_API_KEY="sk-..."     # Singapur-Key!
+Requires QWEN3_API_KEY (a Singapore key) and QWEN3_WORKSPACE_ID in .env.
 
-Beispiele:
+Examples:
     python qwen_voice_enroll.py create --audio ref.wav --name larsrt
     python qwen_voice_enroll.py list
     python qwen_voice_enroll.py delete --voice qwen-tts-vc-...
@@ -24,15 +23,21 @@ import pathlib
 import sys
 
 import requests
+from dotenv import load_dotenv
 
-WORKSPACE_ID = os.getenv("DASHSCOPE_WORKSPACE_ID", "ws-nv1jxpvb33k9l469")
-BASE_URL = os.getenv(
-    "DASHSCOPE_BASE_URL",
-    f"https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/api/v1",
+load_dotenv()
+
+# The workspace id is account-specific, so it lives in .env instead of here.
+# QWEN3_* is the naming the rest of the repo uses; the DASHSCOPE_* names are
+# accepted too, because that is what the DashScope docs call them.
+WORKSPACE_ID = os.getenv("QWEN3_WORKSPACE_ID") or os.getenv("DASHSCOPE_WORKSPACE_ID")
+BASE_URL = os.getenv("QWEN3_BASE_URL") or os.getenv("DASHSCOPE_BASE_URL") or (
+    f"https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/api/v1"
+    if WORKSPACE_ID else None
 )
 CUSTOMIZATION_PATH = "/services/audio/tts/customization"
 
-# Enrollment-Modell ist fix; target_model bestimmt, wogegen die Voice bindet.
+# The enrollment model is fixed; target_model decides which model the voice binds to.
 ENROLLMENT_MODEL = "qwen-voice-enrollment"
 TARGET_MODEL_REALTIME = "qwen3-tts-vc-realtime-2026-01-15"
 
@@ -40,9 +45,16 @@ MIME_BY_SUFFIX = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4"
 
 
 def _post(payload: dict) -> dict:
-    api_key = os.getenv("DASHSCOPE_API_KEY")
+    api_key = os.getenv("QWEN3_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
     if not api_key:
-        sys.exit("DASHSCOPE_API_KEY ist nicht gesetzt.")
+        sys.exit("QWEN3_API_KEY is not set (see .env.example).")
+    if not BASE_URL:
+        sys.exit(
+            "QWEN3_WORKSPACE_ID is not set (see .env.example).\n"
+            "Find it in the DashScope console; it is the ws-... part of your "
+            "workspace host.\nAlternatively set QWEN3_BASE_URL to the full "
+            "endpoint."
+        )
 
     resp = requests.post(
         f"{BASE_URL.rstrip('/')}{CUSTOMIZATION_PATH}",
@@ -60,11 +72,11 @@ def _post(payload: dict) -> dict:
 
 def _audio_to_data_uri(path: pathlib.Path) -> str:
     if not path.exists():
-        sys.exit(f"Audiodatei nicht gefunden: {path}")
+        sys.exit(f"Audio file not found: {path}")
 
     size_mb = path.stat().st_size / 1024 / 1024
     if size_mb > 10:
-        sys.exit(f"Datei ist {size_mb:.1f} MB, erlaubt sind maximal 10 MB.")
+        sys.exit(f"File is {size_mb:.1f} MB, the limit is 10 MB.")
 
     mime = MIME_BY_SUFFIX.get(path.suffix.lower()) or mimetypes.guess_type(path)[0]
     if not mime:
@@ -91,11 +103,11 @@ def cmd_create(args: argparse.Namespace) -> None:
     )
     voice = result.get("output", {}).get("voice")
     if not voice:
-        sys.exit(f"Kein voice-Feld in der Antwort:\n{json.dumps(result, indent=2)}")
+        sys.exit(f"No voice field in the response:\n{json.dumps(result, indent=2)}")
 
     print(f"voice      = {voice}")
     print(f"target_model = {args.target_model}")
-    print("\nIn der Realtime-Session als update_session(voice=...) setzen.")
+    print("\nUse it in the realtime session as update_session(voice=...).")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -119,9 +131,9 @@ def main() -> int:
 
     p_create = sub.add_parser("create", help="Neue Voice anlegen")
     src = p_create.add_mutually_exclusive_group(required=True)
-    src.add_argument("--audio", help="Lokale Referenzdatei (wav/mp3/m4a)")
-    src.add_argument("--url", help="Öffentlich erreichbare Audio-URL")
-    p_create.add_argument("--name", required=True, help="preferred_name (Präfix)")
+    src.add_argument("--audio", help="Local reference file (wav/mp3/m4a)")
+    src.add_argument("--url", help="Publicly reachable audio URL")
+    p_create.add_argument("--name", required=True, help="preferred_name (prefix)")
     p_create.add_argument("--target-model", default=TARGET_MODEL_REALTIME)
     p_create.set_defaults(func=cmd_create)
 

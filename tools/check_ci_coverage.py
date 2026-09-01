@@ -1,27 +1,17 @@
-"""Does the reported confidence interval actually cover? And what can it detect?
+"""Does the reported confidence interval actually cover, and what can it detect?
 
 Usage:
-    uv run python evaluation/check_ci_coverage.py
+    uv run python tools/check_ci_coverage.py
 
-analyze_listening_test.py reports 95 % intervals from a two-way cluster
-bootstrap over raters and texts. With only ~13 texts, "cluster bootstrap" is not
-self-evidently correct: cluster methods are known to under-cover when the number
-of clusters is small, and an interval that is too narrow is worse than no
-interval, because it turns noise into a claim.
+analyze_listening_test.py reports intervals from a two-way cluster bootstrap.
+With only ~13 texts that is not self-evidently correct: cluster methods can
+under-cover when there are few clusters, and an interval that is too narrow
+turns noise into a claim.
 
-So this script simulates the design that was actually built - the same number of
-texts, conditions, plans and raters - draws data from a known model, and counts
-how often the nominal 95 % interval contains the true value. It also reports the
-smallest condition difference the design can detect, which is the number that
-says whether 30 raters is enough.
-
-Nothing here touches the collected ratings. It is a property of the design and
-can be run before the first rater.
-
-Reported for comparison:
-    two-way          resample raters AND texts (what the analysis does)
-    raters only      resample raters, treat the 13 texts as fixed
-    naive pooled     treat every single answer as independent (the old behaviour)
+This simulates the design that was actually built, draws data from a known
+model, and counts how often the nominal 95 % interval contains the true value.
+It also reports the smallest difference the design can detect. Nothing here
+touches the collected ratings.
 """
 
 import argparse

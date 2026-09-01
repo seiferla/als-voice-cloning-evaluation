@@ -1,35 +1,40 @@
 """Turns the objective results table into comparisons with intervals.
 
 Usage:
-    uv run python evaluation/analyze_objective.py [results.csv]
+    uv run python evaluation/analyze_objective.py [results.csv] [--long-form]
 
-run_eval.py reports medians. A median answers "what does this system usually
-do"; it does not answer "is this system better than that one", which is the
-question the report has to defend. Three medians in a table invite a ranking
-that the numbers may not support - especially here, where the systems are
-compared on only 13-16 texts and one of them has a standard deviation larger
-than its mean.
+run_eval.py reports medians, which say what a model usually does but not whether
+one model is better than another. Every comparison here is paired within text -
+the same sentence rendered by two models - with intervals bootstrapped over
+texts and Bonferroni-adjusted verdicts.
 
-So every comparison here is **paired within text**: the same sentence rendered
-by two systems. Pairing removes the largest nuisance - some texts are simply
-harder for every system - and is the reason a small number of texts can still
-say something. Intervals come from a bootstrap over texts, because texts are
-what this study samples; the conclusion has to survive a different set of
-sentences, not just these.
+--long-form additionally scores the FULL renders for voice drift, level drift
+and speaking rate. The listening test only rates ~10 s excerpts, so anything
+that appears over a long utterance is invisible there. That pass needs the audio
+and the embedding model, so it is opt-in.
 
-Comparisons against the REAL row are the ones that matter most: they say how far
-a system is from the human original on the same measure, which is the only way
-SIM and WER become readable at all.
-
-Writes objective_summary.csv and objective_pairwise.csv next to the input.
+Writes objective_summary.csv and objective_pairwise.csv.
 """
 
 import argparse
 import csv
+import json
 import random
 import statistics
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from myecho.evaluation.audio_qc import (  # noqa: E402
+    SILENCE_THRESHOLD_DBFS,
+    _frame_db,
+    load_mono,
+)
+from myecho.evaluation.metrics import extract_embedding, similarity  # noqa: E402
 
 RESULTS_DIR = Path(__file__).parent / "results"
 N_BOOTSTRAP = 4000
@@ -81,10 +86,187 @@ def bootstrap_ci(texts, statistic, n=N_BOOTSTRAP, seed=SEED, ci=CI):
     return lo, hi
 
 
+TESTSET_PATH = Path(__file__).parent / "testset.json"
+RESULTS_DIR = Path(__file__).parent / "results"
+ALIGN_DIR = RESULTS_DIR / "alignments"
+LONG_FORM_CSV = RESULTS_DIR / "long_form.csv"
+
+AUDIO_EXT = "wav"
+REAL_LABEL = "REAL"
+
+# A third is long enough for a stable ECAPA embedding on these renders (the
+# shortest is ~12 s, so ~4 s per third) and short enough to show a trend.
+N_PARTS = 3
+
+
+def load_case(case_name=None):
+    with open(TESTSET_PATH, encoding="utf-8") as f:
+        cases = json.load(f)["cases"]
+    if case_name is None:
+        return cases[0]
+    for case in cases:
+        if case["name"] == case_name:
+            return case
+    raise SystemExit(f"Case '{case_name}' not found in {TESTSET_PATH}")
+
+
+def load_long_form_texts(case):
+    with open(Path(case["texts_file"]), encoding="utf-8") as f:
+        data = json.load(f)
+    return [{"id": t.get("id", str(i)), "source_audio": t.get("source_audio")}
+            for i, t in enumerate(data["texts"])]
+
+
+def long_form_real_path(source_audio):
+    denoised = Path("data/DeepFilterNet") / source_audio
+    return denoised if denoised.exists() else Path("data/wav") / source_audio
+
+
+def part_similarity(path, ref_embedding, n_parts=N_PARTS):
+    """Similarity to the reference for each equal-length part of the render."""
+    import soundfile as sf
+
+    x, sr = load_mono(path)
+    edges = np.linspace(0, len(x), n_parts + 1).astype(int)
+    sims = []
+    for start, end in zip(edges[:-1], edges[1:]):
+        chunk = x[start:end]
+        if len(chunk) < sr:            # under a second is not worth embedding
+            sims.append(None)
+            continue
+        tmp = path.parent / f".part_{path.stem}.wav"
+        sf.write(str(tmp), chunk, sr)
+        try:
+            sims.append(float(similarity(ref_embedding, extract_embedding(tmp))))
+        finally:
+            tmp.unlink(missing_ok=True)
+    return sims
+
+
+def timing_features(path):
+    x, sr = load_mono(path)
+    frame_db = _frame_db(x, sr)
+    active = frame_db > SILENCE_THRESHOLD_DBFS
+
+    # longest run of inactive frames
+    longest, run = 0, 0
+    for is_active in active:
+        run = 0 if is_active else run + 1
+        longest = max(longest, run)
+
+    third = len(frame_db) // 3
+    level_drift = (float(np.median(frame_db[-third:][active[-third:]]))
+                   - float(np.median(frame_db[:third][active[:third]]))
+                   if third > 0 and active[:third].any() and active[-third:].any()
+                   else None)
+
+    return {
+        "duration_s": round(len(x) / sr, 2),
+        "silence_ratio": round(float((~active).mean()), 3),
+        "longest_gap_s": round(longest * 0.02, 2),
+        "level_drift_db": round(level_drift, 2) if level_drift is not None else None,
+    }
+
+
+def words_per_second(source, text_id, duration_s):
+    cache = ALIGN_DIR / source / f"{text_id}.json"
+    if not cache.exists() or not duration_s:
+        return None
+    words = json.loads(cache.read_text(encoding="utf-8"))
+    return round(len(words) / duration_s, 2) if words else None
+
+
+
+def long_form_report(case_name=None):
+    """Objective stability of the FULL renders - what the listening test cannot see.
+
+    The listening test rates ~10 s excerpts, and on this material those sit at
+    32-71 % of each render, so ~73 % of what each system produced is never heard
+    by a rater. Anything that only appears over a long utterance is therefore
+    invisible in the subjective results. This measures it instead of assuming it
+    is harmless: does the voice stay the target voice from the start of a render
+    to the end, and is the output length a sensible function of the text?
+
+    Needs the audio and the ECAPA model, so it is opt-in (--long-form).
+    """
+    case = load_case(case_name)
+    texts = load_long_form_texts(case)
+    case_dir = RESULTS_DIR / case["name"]
+    if not case_dir.exists():
+        raise SystemExit(f"{case_dir} not found - run evaluation/run_eval.py first")
+
+    print(f"Reference embedding from {case['reference_audio']} ...")
+    ref_embedding = extract_embedding(case["reference_audio"])
+
+    models = sorted(p.name for p in case_dir.iterdir() if p.is_dir())
+    real_duration, rows = {}, []
+    for source in [REAL_LABEL] + models:
+        for i, entry in enumerate(texts):
+            text_id = entry["id"]
+            if source == REAL_LABEL:
+                path = (long_form_real_path(entry["source_audio"])
+                        if entry["source_audio"] else None)
+            else:
+                path = case_dir / source / f"{i:02d}_{text_id}.wav"
+            if path is None or not path.exists():
+                continue
+            timing = timing_features(path)
+            if source == REAL_LABEL:
+                real_duration[text_id] = timing["duration_s"]
+            sims = part_similarity(path, ref_embedding)
+            first, last = sims[0], sims[-1]
+            rows.append({
+                "source": source, "text_id": text_id, **timing,
+                "words_per_second": words_per_second(source, text_id, timing["duration_s"]),
+                "duration_ratio": (round(timing["duration_s"] / real_duration[text_id], 3)
+                                   if real_duration.get(text_id) else None),
+                "sim_first": round(first, 4) if first is not None else None,
+                "sim_last": round(last, 4) if last is not None else None,
+                "sim_drift": (round(last - first, 4)
+                              if first is not None and last is not None else None),
+            })
+
+    fields = ["source", "text_id", "duration_s", "duration_ratio", "words_per_second",
+              "silence_ratio", "longest_gap_s", "level_drift_db",
+              "sim_first", "sim_last", "sim_drift"]
+    with open(LONG_FORM_CSV, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    def med(source, key):
+        values = [r[key] for r in rows if r["source"] == source and r[key] is not None]
+        return statistics.median(values) if values else None
+
+    def fmt(value, digits=3):
+        return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "  n/a"
+
+    print(f"\n=== Long-form stability of the full renders ({len(rows)} renders) ===")
+    print(f"{'source':9s}{'dur ratio':>11s}{'words/s':>9s}{'silence':>9s}"
+          f"{'gap s':>8s}{'level dr':>10s}{'sim 1st':>9s}{'sim 3rd':>9s}{'drift':>9s}")
+    for source in [REAL_LABEL] + models:
+        print(f"{source:9s}{fmt(med(source, 'duration_ratio')):>11s}"
+              f"{fmt(med(source, 'words_per_second'), 2):>9s}"
+              f"{fmt(med(source, 'silence_ratio')):>9s}"
+              f"{fmt(med(source, 'longest_gap_s'), 2):>8s}"
+              f"{fmt(med(source, 'level_drift_db'), 2):>10s}"
+              f"{fmt(med(source, 'sim_first')):>9s}"
+              f"{fmt(med(source, 'sim_last')):>9s}"
+              f"{fmt(med(source, 'sim_drift')):>9s}")
+    print(f"\nPer-render values -> {LONG_FORM_CSV}")
+    print("sim_drift says whether the voice is still the target voice at the end")
+    print("of a long utterance. Read the REAL row as the baseline.")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("results", nargs="?",
                         default=str(RESULTS_DIR / "results_latest.csv"))
+    parser.add_argument("--long-form", action="store_true",
+                        help="also analyse the FULL renders (voice drift, level "
+                             "drift, speaking rate). Needs the audio and the "
+                             "embedding model, so it takes a few minutes.")
+    parser.add_argument("--case", default=None)
     args = parser.parse_args()
 
     path = Path(args.results)
@@ -176,6 +358,14 @@ def main():
         print("\nA system whose interval overlaps the REAL row on SIM is at the "
               "ceiling of what\nthis metric resolves - not 'as good as the human', "
               "but 'not separable by ECAPA'.")
+
+    if args.long_form:
+        print()
+        long_form_report(args.case)
+    else:
+        print("\nThe listening test only rates ~10 s excerpts. Add --long-form to "
+              "also check\nthe full renders for voice drift, level drift and "
+              "speaking rate.")
 
 
 if __name__ == "__main__":
