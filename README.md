@@ -39,8 +39,6 @@ speaking spontaneously into a phone.
 
 📄 **[docs/METHODS.md](docs/METHODS.md)** explains why the evaluation is built
 this way, with the measured numbers behind each decision.
-📄 **[PREREGISTRATION.md](PREREGISTRATION.md)** records the design that was fixed
-before any rater was asked.
 
 ---
 
@@ -135,18 +133,15 @@ make results                                      # naturalness, 2AFC, compariso
 | `sessions` | `responses/all_ratings.jsonl` | as long as your raters take | prints a line per submitted rating |
 | `results` | `nmos_summary.csv`, `turing_summary.csv`, `objective_*.csv`, … | ~30 s | tables with means, fooling rates and intervals |
 
+Below five raters, `make results` prints a warning and suppresses every
+comparison verdict: the interval resamples raters, and with one or two raters
+that dimension carries no information. Use such a run to check the procedure,
+not to compare the systems.
+
 `make enrollment` is only needed once, and only if you want the three services
 enrolled from one identical file — which you do, because otherwise a similarity
 difference between them cannot be attributed to the service. The three uploads
 themselves are manual; the script prints the per-service checklist.
-
-Two more targets, neither needing raters or API access:
-
-```bash
-make long-form     # stability of the FULL renders: voice drift, level drift, rate
-make coverage      # does the reported interval cover? what can it detect?
-make test          # unit tests, ~1 s
-```
 
 ### 5. Running the sessions
 
@@ -205,25 +200,47 @@ src/myecho/                       importable package
     ├── excerpt.py                choosing, locating and cutting excerpts
     └── audio_qc.py               loudness and pause-floor matching
 
-evaluation/                       the pipeline, in running order
+evaluation/                       the pipeline; one Makefile target per stage
 ├── testset.json                  input: reference audio + texts
+│   # make enrollment
 ├── prepare_enrollment.py         one canonical voice sample for all 3 services
+│   # make objective
 ├── run_eval.py                   synthesize + objective metrics
+│   # make stimuli
 ├── select_excerpts.py            choose the ~10 s excerpts
 ├── qc_samples.py                 screen for technical failures
 ├── prepare_listening_test.py     build the blinded listening test
+├── listening_test_template.html  page template for the listening test
+│   # make check
 ├── check_listening_test.py       verify blinding, design and level matching
+│   # make sessions
 ├── listening_test_server.py      serve the test, save each rater
+│   # make results
 ├── analyze_listening_test.py     naturalness + 2AFC results
 ├── analyze_objective.py          SIM/WER comparisons (--long-form for renders)
 └── results/                      all output (gitignored)
 
-tools/check_ci_coverage.py        does the reported interval cover? what can it detect?
+tools/
+├── check_ci_coverage.py          does the reported interval cover? what can it detect?
+└── qwen3_voice_enroll.py         enroll / list / delete a qwen3 realtime voice
+
 tests/                            unit tests (uv run pytest)
 notebooks/                        data preprocessing and exploratory analysis
-docs/METHODS.md                   methodology and reasoning
+docs/
+├── METHODS.md                    methodology and reasoning
+└── figures/architecture.{mmd,svg,png}   system architecture figure for the report
 data/                             audio (gitignored — personal recordings)
 ```
+
+### Supporting analyses
+
+Not part of the main pipeline above:
+
+- `make long-form` — stability of the FULL renders: voice drift, level drift, rate
+- `make coverage` — does the reported interval cover? what can it detect?
+- `PREREGISTRATION.md` — the design frozen before the first rater
+- `docs/METHODS.md` — the long version of the methodology; the README is the short version
+- `make test` — unit tests, ~1 s; pulls the `dev` extra automatically, so it works from a fresh clone
 
 ### The three services
 
@@ -251,4 +268,4 @@ hash manifest so all three can be re-enrolled from the same file. See
   floor** has to be recomputed together.
 - A qwen3 voice enrolled against `qwen3-tts-vc-realtime-*` works only over
   `/api-ws/v1/realtime`. Enroll local files with
-  `python qwen_voice_enroll.py create --audio ref.wav --name myvoice`.
+  `uv run python tools/qwen3_voice_enroll.py create --audio ref.wav --name myvoice`.

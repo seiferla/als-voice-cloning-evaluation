@@ -45,6 +45,8 @@ METRICS = {
     "sim": ("speaker similarity", "higher is better"),
     "wer": ("word error rate", "lower is better"),
     "service_rtf": ("latency / audio length", "lower is better"),
+    "latency_s": ("wall-clock until the audio is complete", "lower is better"),
+    "ttfa_s": ("time to first audio frame", "lower is better"),
 }
 
 
@@ -258,6 +260,80 @@ def long_form_report(case_name=None):
     print("of a long utterance. Read the REAL row as the baseline.")
 
 
+def render_reliability(case_name=None):
+    """How often each system produced audio that could be evaluated at all.
+
+    Every metric below, and the whole listening test, is computed on the
+    renditions that survived screening. A system that fails on a third of the
+    texts is then compared only on the texts it handled - and because a failed
+    text is dropped for EVERY system (the balanced design), its failures leave
+    no trace in any other number. For a communication aid that reliability gap
+    matters more than a small difference in similarity or naturalness, so it is
+    reported here rather than left in the build log.
+
+    Counted over all texts in the set, before any exclusion.
+    """
+    excerpts_path = RESULTS_DIR / "excerpts.json"
+    if not excerpts_path.exists():
+        return []
+    with open(excerpts_path, encoding="utf-8") as f:
+        excerpts = json.load(f)
+    spans = excerpts["spans"]
+    texts = [t["id"] for t in load_long_form_texts(load_case(case_name))]
+
+    # Specific reasons where we have them; "not located" is the catch-all for a
+    # rendition the aligner could not find the excerpt in at all.
+    reasons = defaultdict(dict)
+    for entry in excerpts.get("rejected", []):
+        reasons[entry["source"]][entry["text_id"]] = entry["reason"]
+
+    exclusions_path = RESULTS_DIR / "exclusions.json"
+    if exclusions_path.exists():
+        with open(exclusions_path, encoding="utf-8") as f:
+            for entry in json.load(f).get("exclude", []):
+                reasons[entry["model"]].setdefault(entry["text_id"],
+                                                   entry.get("reason", "excluded"))
+
+    rows = []
+    for source in sorted({k.split("/", 1)[0] for k in spans} | set(reasons)):
+        unlocated = {t: "excerpt not located - the system did not say the text"
+                     for t in texts if f"{source}/{t}" not in spans}
+        failures = {**unlocated, **reasons.get(source, {})}
+        rows.append({"model": source, "n_texts": len(texts),
+                     "n_unusable": len(failures),
+                     "usable_rate": round(1 - len(failures) / max(len(texts), 1), 3),
+                     "failures": failures})
+    return rows
+
+
+def report_render_reliability(rows):
+    if not rows:
+        return
+    print("=== render reliability - did the system produce usable audio at all? ===")
+    print("  Over ALL texts, before any exclusion. Everything below is computed on the")
+    print("  survivors only, so this is the one place a failure is still visible.\n")
+    for row in rows:
+        mark = "   <- reference recording, not a system" if row["model"] == REAL_LABEL else ""
+        print(f"  {row['model']:9s} usable {row['n_texts'] - row['n_unusable']:2d}/"
+              f"{row['n_texts']}  ({row['usable_rate']:.0%}){mark}")
+    for row in rows:
+        for text_id, reason in sorted(row["failures"].items()):
+            print(f"      {row['model']}/{text_id}: {reason}")
+
+    out = RESULTS_DIR / "render_reliability.csv"
+    with open(out, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["model", "n_texts", "n_unusable", "usable_rate",
+                         "failed_text_id", "reason"])
+        for row in rows:
+            if not row["failures"]:
+                writer.writerow([row["model"], row["n_texts"], 0, row["usable_rate"], "", ""])
+            for text_id, reason in sorted(row["failures"].items()):
+                writer.writerow([row["model"], row["n_texts"], row["n_unusable"],
+                                 row["usable_rate"], text_id, reason])
+    print(f"\n  -> {out}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("results", nargs="?",
@@ -281,6 +357,7 @@ def main():
     ordered = systems + [m for m in (real, impostor) if m]
 
     print(f"{path.name}: {len(rows)} rows, conditions {ordered}\n")
+    report_render_reliability(render_reliability(args.case))
     if real is None:
         print("WARNING: no REAL row. SIM and WER have no anchor and the numbers "
               "below cannot be\n         calibrated - re-run run_eval.py with a "

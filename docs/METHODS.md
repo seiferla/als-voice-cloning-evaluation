@@ -124,13 +124,20 @@ band   = [round(8.0 × 2.94), round(13.0 × 2.94)] = [24, 38] words
 3. Locate that passage in every rendition via Whisper word-level timestamps and
    a fuzzy token match (`difflib`, longest common subsequence). Below a 0.6 token
    match the system did not say the passage — reported and excluded, never
-   replaced by a time window.
+   replaced by a time window. Only matched runs of **≥ 3 tokens** may set the
+   start and end (`MIN_ANCHOR_TOKENS`); the ratio still counts every matched
+   token. Without that rule a single common word ("das") matching elsewhere in
+   the transcript stretches the span across everything in between: it inflated
+   18 of 64 excerpts by 0.5–5.2 s, and turned two correct 8.5 s and 8.2 s
+   passages into 31.2 s and 20.6 s spans that were then discarded as runaway
+   renders. An inflated span is the worse failure of the two — it is cut and
+   used, so the conditions silently stop holding matched content.
 4. Cut `start − 0.2 s` to `end + 0.3 s`, with 20 ms fades (a hard cut clicks, and
    a click is heard and rated as an artifact).
 
 Steps 1–2 touch no audio, so the choice cannot favour any system. Result on 16
 texts: 14 end at a sentence boundary, 2 at a comma, none mid-sentence. Final
-durations **5.8–14.8 s, median 9.6 s**; 55 stimuli, 9.0 min of audio.
+durations **5.9–14.4 s, median 8.8 s**; 55 stimuli, 8.5 min of audio.
 
 ### Why ~10 s and not the full render
 
@@ -143,7 +150,7 @@ Five reasons, each with a number.
    P.800 Annex B uses stimuli of roughly this length for the same reason.
 2. **Session length.** Full renders meant ~46 min of pure audio per rater, i.e.
    60–75 min sessions; the second half of such a session measures fatigue. Now
-   6.1–6.5 min of audio, ~20 min per session.
+   5.9–6.2 min of audio, ~20 min per session.
 3. **Power per unit of rater time.** For a fixed budget `T`, items `n ≈ T/duration`
    and the standard error of a mean falls with `1/√n`. Going from a 36 s median
    to 9.6 s is **3.75× the items** for the same rater time, i.e. intervals about
@@ -292,18 +299,69 @@ real" wins without judging a voice.
 
 Fix: raise every stimulus's pause floor to one common value by adding 1/f-shaped
 noise — only ever adding, because lowering a floor would mean denoising one
-condition and not the others. Deterministic (seed from the filename). The cue
-drops to **0.745 against a 0.750 guessing baseline**. Pause *structure* is left
-untouched, since how often a voice stops is a property of the system.
+condition and not the others. Deterministic (seed from the filename). Pause
+*structure* is left untouched, since how often a voice stops is a property of
+the system.
 
-### Residual cue, reported not removed
+### How the cues are measured — and why the earlier numbers were too kind
 
-After matching, one feature still separates real from clone above baseline:
-energy in 4–8 kHz, **0.885 vs 0.750**. All three systems render duller than the
-phone-recorded original. This is partly the recording chain and partly a real
-failure to reproduce the source timbre; equalizing it would also erase what
-raters are there to hear. It is measured (`cue_audit.csv`) and must be reported
-next to the 2AFC results.
+Earlier versions of this section quoted accuracies against a "guessing
+baseline" of 0.750: one threshold on one feature, classifying each stimulus on
+its own, compared against the base rate of always answering "clone". That is
+the wrong baseline for the task. A rater in the Turing part hears **two** files
+of the same passage side by side and picks one, so chance is **0.500**, and the
+only thing that matters is which of the two is larger. The base rate also moves
+with the design — the number of rated conditions changes it — which makes those
+numbers incomparable between builds.
+
+`check_listening_test.py` now reports both. The paired column is the one to
+read; it fits a direction only, never a threshold, so there is nothing to
+overfit. Measured on the current set (13 texts, 39 pairs):
+
+| feature | single stimulus | **paired (chance 0.500)** | reading |
+|---|---|---|---|
+| `silence_ratio` | 0.846 | **0.821** | more silence = real |
+| `hf_tilt_db` | 0.846 | **0.795** | brighter = real |
+| `duration_s` | 0.769 | **0.718** | longer = real |
+| `lf_tilt_db` | 0.788 | **0.692** | less low end = real |
+| `pause_snr_db` | 0.769 | **0.564** | cleaner pauses = real |
+| `level_std_db` | 0.750 | 0.513 | no usable cue |
+
+Read these to one decimal, not three. Each paired figure counts wins over 33
+pairs, so a single pair flipping moves it by 0.03 — and rebuilding the set with
+a different stimulus-id assignment (which reseeds the pause-floor noise) moved
+`silence_ratio` between 0.82 and 0.91 across builds with no design change.
+
+### Residual cues, reported not removed
+
+Four features stay usable after matching. None is removed, and each for a
+reason that has to be stated rather than hidden:
+
+- **Pause structure** (0.786, the strongest). The real recordings pause more
+  often than any system. This is deliberate: how a voice distributes its stops
+  is part of what a rater is there to judge, and equalizing it would remove a
+  genuine difference between the systems. It is nonetheless the single largest
+  route to answering the Turing part without listening to voice quality.
+- **Brightness**, energy 4–8 kHz (0.738). All three systems render duller than
+  the phone-recorded original — partly the recording chain, partly a real
+  failure to reproduce the source timbre. Equalizing it would erase what
+  raters are there to hear.
+- **Duration** (0.667). The speaker is slower than every system (2.53 vs
+  2.7–3.0 words/s), so a content-matched excerpt runs longer in her voice. It
+  cannot be normalized away without either changing the content — which breaks
+  the matched-passage design — or time-stretching, which is an audible
+  artifact. See §3.
+- **Pause floor spread** (0.641). Three voxtral stimuli sit 11 dB below the
+  common target and could not be lifted: their own noise floor never drops far
+  enough for a floor to be measured at all (`pause_measured: fallback` in
+  `stimuli.csv`), and the matching only ever adds noise. They are kept rather
+  than excluded — dropping them would remove exactly the material on which
+  voxtral performed worst, which flatters it. The effect runs in two directions
+  and both belong in the report: hiss depresses voxtral's naturalness, and hiss
+  also sounds like a phone recording, which can raise its fooling rate.
+
+All six features are written per stimulus to `cue_audit.csv` and must be
+reported next to the Turing results.
 
 ### Enrollment — not yet removed
 
@@ -357,6 +415,11 @@ operator — the operator is the author of the system.
 Counts: 13 usable texts × 4 conditions = 52 naturalness items, 39 pairs, 24–28
 items and 6–7 pairs per rater.
 
+No low anchor. An ITU-T P.810 MNRU anchor was built and then dropped: it degrades
+a *recording* with noise, while the question put to the rater is about the
+naturalness of a *voice*, so it anchored the wrong axis — and it cost a fifth of
+every session. The consequence is recorded in §8.
+
 ### Blinding
 
 All stimuli are named `s_001.wav`, assigned after the shuffle; `key.json` holds
@@ -371,15 +434,29 @@ Technical failures only, never "this sounds bad" — that is what raters judge.
 - cannot reach target loudness without clipping; essentially no speech; clipped
 - excerpt not found in the rendition (< 0.6 token match): the system did not say it
 - excerpt found but stretched over > 2× the per-text median span: a runaway render
+- no measurable pause floor: not one frame falls below the silence threshold, so
+  `match_noise_floor` cannot equalize the item and it would sit 7–12 dB away from
+  the common floor — the exact cue §5 exists to remove
 
 `duration_off` / `silence_heavy` alone are **not** exclusions — they usually mean
 the system speaks slower or pauses more, which raters should hear.
 
 If a text is excluded for one system it is dropped for all, so every condition is
-scored on identical material. On this set: three voxtral renditions, hence 3 of
-16 texts, leaving 13. Two of the three were independently flagged by both the
-level screening and the alignment — two methods agreeing on which renders are
-broken.
+scored on identical material. On this set: three voxtral renditions, hence 3 of 16
+texts, leaving 13, all three for having no measurable pause floor.
+**Every exclusion in this set is a voxtral rendition**; qwen3 and s2pro produced
+usable audio for all 16 texts.
+
+Two further voxtral renditions were excluded as runaway renders in an earlier
+build and are **not** failures: the aligner had mislocated their excerpts (§3),
+reporting a 31.2 s and a 20.6 s span for passages that are actually 8.5 s and
+8.2 s. Both renders are within 5 % of the length the other systems produced.
+
+That asymmetry is a result, and the balanced-design rule is what hides it: the
+surviving 13 texts are the ones voxtral handled, so every system is then scored
+on material selected by one system's success. `analyze_objective.py` therefore
+reports the per-system usable-render rate (`render_reliability.csv`) before any
+quality metric, so a system that fails outright cannot look good by being absent.
 
 ---
 
@@ -441,11 +518,32 @@ bootstrap stays the headline at this sample size.
 4. **WER floor larger than the effects** (§2), measured with whisper-small.
 5. **73 % of each render is not rated subjectively** (§3), answered objectively
    rather than assumed away.
-6. **Residual brightness cue**, 0.885 vs 0.750 (§5).
-7. **Spontaneous vs. read speech.** The real side is spontaneous with
+6. **Four residual cues in the Turing part** (§5), measured paired against
+   chance 0.500: pause structure ≈0.82, brightness ≈0.80, duration ≈0.72,
+   low-end ≈0.69. A rater who notices any of them can answer above chance
+   without judging voice quality, so the Turing result is a lower bound on how
+   distinguishable the clones are — not a measure of voice similarity alone.
+   Pause structure is strong enough that the fooling rate should be read as
+   "detectable, largely via prosody and pausing", not "the voice is
+   distinguishable".
+7. **The exclusions are not missing at random.** All five excluded renditions are
+   voxtral (§6), so the 13 surviving texts are the ones voxtral rendered usably
+   and every system is compared on a text sample conditioned on one system's
+   success. Read the usable-render rate — voxtral 13/16, qwen3 and s2pro 16/16 —
+   next to any quality number, and expect voxtral's naturalness here to be
+   flattered by the absence of its worst cases.
+8. **Spontaneous vs. read speech.** The real side is spontaneous with
    hesitations; the clones read a transcript of it. Disfluencies are in the text,
    but the delivery differs — and that is part of what makes a clone detectable.
-8. **The operator is the author.** Rater clicks, key unopened, sides re-flipped
+9. **The operator is the author.** Rater clicks, key unopened, sides re-flipped
    per rater — but this is not a blind experimenter.
-9. **Convenience rater sample**, no hearing screening, and the familiarity
-   subgroup will be small unless recruited to a quota.
+10. **Convenience rater sample**, no hearing screening, and the familiarity
+    subgroup will be small unless recruited to a quota.
+11. **No low anchor** (§6), so nothing in the set forces a rater to use the
+    bottom of the scale. Absolute MOS values are therefore interpretable only
+    within this study and must not be compared with MOS numbers from other
+    work — a restriction that applies to MOS across studies anyway, since it
+    depends on the rater pool, the instructions, the language and the material.
+    Within-study comparisons (system vs. system, system vs. REAL) are unaffected,
+    and the two hidden repeats still measure whether a rater scores
+    consistently.

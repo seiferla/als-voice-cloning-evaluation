@@ -18,7 +18,9 @@ help:
 	@echo "  make check                              verify it - run before the first rater"
 	@echo "  make sessions                           serve the test at localhost:8765"
 	@echo "  make results                            naturalness, 2AFC and objective comparisons"
+	@echo "  make clean-test                         archive this round and start the test over"
 	@echo
+	@echo "Supporting analyses (not part of the pipeline):"
 	@echo "  make long-form                          stability of the full renders"
 	@echo "  make coverage                           does the reported interval cover?"
 	@echo "  make test                               unit tests"
@@ -62,4 +64,23 @@ coverage:
 	$(PY) tools/check_ci_coverage.py
 
 test:
-	uv run pytest -q
+	uv run --extra dev pytest -q
+
+# Step 5b - start the listening test over. Archives the current round into
+# results/archive/<stamp>/ instead of deleting it, so a reset is reversible.
+# Never touches case_*/ (the rendered audio, which cost API money) or
+# alignments/ (the cached ASR passes).
+clean-test:
+	@stamp=$$(date +%Y%m%d_%H%M%S); \
+	dir=evaluation/results/archive/$$stamp; \
+	mkdir -p $$dir; \
+	for f in responses key.json index.html run_meta.json stimuli.csv \
+	         cue_audit.csv share.zip nmos_summary.csv nmos_pairwise.csv \
+	         turing_summary.csv turing_familiarity.csv reliability.csv \
+	         ratings_long.csv samples; do \
+	  test -e evaluation/results/listening_test/$$f && \
+	    mv evaluation/results/listening_test/$$f $$dir/ || true; \
+	done; \
+	echo "archived the previous round to $$dir"; \
+	echo "rendered audio and the ASR cache were not touched."; \
+	echo "next: make stimuli && make check"

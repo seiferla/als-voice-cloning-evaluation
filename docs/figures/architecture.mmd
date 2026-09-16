@@ -1,0 +1,44 @@
+%% Systemarchitektur für den Abschlussbericht (Kapitel "Konzept und Implementierung").
+%% Rendern: npx -y @mermaid-js/mermaid-cli -i architecture.mmd -o architecture.svg -b transparent
+%%{init: {"flowchart": {"wrappingWidth": 300, "htmlLabels": true}}}%%
+flowchart LR
+    DATA["<b>Ausgangsdaten</b><br/>42 Sprachnachrichten (2021–22)<br/>WAV · mono · DeepFilterNet2"]
+    REAL["<b>REAL</b><br/>16 eigene Aufnahmen<br/>derselben Texte<br/>= vierte Bedingung"]
+    TTS["<b>Voice Cloning</b><br/>s2pro · voxtral · qwen3<br/>48 Renders (16 Texte × 3)"]
+
+    subgraph OBJP["objektiver Pfad – Audio unverändert"]
+        OBJ["<b>Objektive Metriken</b><br/>SIM (ECAPA-TDNN)<br/>WER (Whisper + jiwer)<br/>Latenz, TTFA"]
+    end
+
+    subgraph SUBP["subjektiver Pfad – identische Behandlung aller Bedingungen"]
+        STIM["<b>Stimuli</b><br/>~10 s Excerpt · −23 LUFS<br/>gemeinsamer Pausenboden<br/>verblindet und geprüft"]
+        TEST["<b>Hörtest</b> (30 Bewertende)<br/>Natürlichkeit ACR 1–5<br/>2AFC: echt oder Klon?"]
+        STIM --> TEST
+    end
+
+    ANA["<b>Auswertung</b><br/>Bootstrap-Intervalle<br/>jeder Dienst gegen REAL"]
+
+    DATA -->|"1 Referenzdatei,<br/>identisch für alle drei"| TTS
+    DATA -->|"16 Texte<br/>(Transkripte)"| TTS
+    DATA --> REAL
+    TTS --> OBJ
+    REAL --> OBJ
+    TTS --> STIM
+    REAL --> STIM
+    OBJ --> ANA
+    TEST --> ANA
+
+    classDef data fill:#ececf1,stroke:#8a8a99,color:#222
+    classDef real fill:#dbe8f7,stroke:#5b8ac4,color:#222
+    classDef tts  fill:#e8dff5,stroke:#8f6fbf,color:#222
+    classDef obj  fill:#dff0e3,stroke:#5c9a6b,color:#222
+    classDef sub  fill:#fbe9d6,stroke:#d08a4a,color:#222
+    classDef ana  fill:#ffffff,stroke:#444,color:#222
+    class DATA data
+    class REAL real
+    class TTS tts
+    class OBJ obj
+    class STIM,TEST sub
+    class ANA ana
+    style OBJP fill:#f4faf5,stroke:#5c9a6b,stroke-dasharray:4 3
+    style SUBP fill:#fdf6ee,stroke:#d08a4a,stroke-dasharray:4 3

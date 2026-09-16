@@ -94,7 +94,7 @@ class Qwen3TTS:
         NOTE: unlike the Mistral API, DashScope does not accept raw audio
         bytes here - the reference sample must already be hosted at a URL
         the service can fetch itself (e.g. an OSS bucket link). Use
-        qwen_voice_enroll.py if you need to upload a local file as data URI.
+        tools/qwen3_voice_enroll.py if you need to upload a local file as data URI.
         """
         self.voice_id = self._enrollment.create_voice(
             target_model=self.model,

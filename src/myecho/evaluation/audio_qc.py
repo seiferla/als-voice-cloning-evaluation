@@ -31,6 +31,20 @@ TARGET_LUFS = -23.0
 PEAK_CEILING_DBFS = -1.0
 
 # Frames below this count as silence for silence_ratio / active_rms.
+#
+# A frame counts as silence when it falls BELOW this, so a lower value makes
+# silence harder to reach, not easier. Measured on this material: -50 dBFS
+# leaves 3 of 70 stimuli without a measurable pause floor, -60 dBFS leaves 17.
+#
+# The value is entangled with TARGET_PAUSE_SNR_DB (26 dB) and the -23 LUFS
+# programme level: a floor sitting at the target lands near -49 dBFS, i.e. right
+# at this threshold, so files whose floor is at or worse than the target fall
+# into the percentile fallback in speech_and_pause_level() and keep an unmatched
+# floor. `pause_measured` in the returned info says when that happened.
+#
+# The principled fix is a threshold relative to each file's own speech level
+# rather than an absolute one - not done here, because it also changes
+# silence_ratio in measure(), which analyze_objective.py reports.
 SILENCE_THRESHOLD_DBFS = -50.0
 
 # Lowest native rate across the models (qwen3/voxtral 24k, s2pro 44.1k).
@@ -43,6 +57,43 @@ COMMON_SR = 24000
 TARGET_PAUSE_SNR_DB = 26.0
 
 _FRAME_S = 0.02
+
+# Low anchor for the listening test, per ITU-T P.810 (Modulated Noise Reference
+# Unit). Q is the speech-to-modulated-noise ratio in dB: lower is worse.
+#
+# The usable range is narrow and bounded on both sides. Below ~22 dB the
+# impairment dominates the item and raters call the anchor a defective
+# recording instead of a poor one (15 dB did exactly that). Above
+# TARGET_PAUSE_SNR_DB (26 dB) the added noise sits under the pause floor every
+# stimulus already carries, so it is masked and anchors nothing. 24 dB is inside
+# that window - audible, 2 dB above the common floor, still judged as speech.
+#
+# Note the dimension mismatch this leaves: P.810 was written for codec and
+# transmission quality, while the rating question here is naturalness. The
+# anchor marks the bottom of the scale; it is not a bad voice.
+#
+# Why an anchor at all: with only good conditions in the set, raters compress
+# their range and never award 1 or 2, which makes the absolute MOS values
+# incomparable to any other study and hides scale-usage differences between
+# people. The anchor is a fixed reference point, not a system under test.
+MNRU_Q_DB = 24.0
+
+
+def mnru(x, q_db=MNRU_Q_DB, seed=0):
+    """Degrade a signal with signal-correlated noise (ITU-T P.810).
+
+    y = x + 10^(-Q/20) * x * n,  n ~ N(0, 1)
+
+    The noise is MULTIPLIED by the signal, so it scales with the waveform
+    instead of sitting under it: the result sounds rough and grainy rather than
+    hissy, and it stays put during silence. That is the point of MNRU over
+    additive noise - it degrades the speech itself, which is what the scale's
+    lower end is supposed to represent, and it needs no level calibration
+    because the impairment is relative to the signal.
+    """
+    rng = np.random.default_rng(seed)
+    noise = rng.standard_normal(len(x)).astype(np.float32)
+    return (x + (10.0 ** (-q_db / 20.0)) * x * noise).astype(np.float32)
 
 
 def load_mono(path):
@@ -63,16 +114,23 @@ def _frame_db(x, sr):
     return np.array([_db(np.sqrt((f ** 2).mean())) for f in frames])
 
 
-def speech_and_pause_level(x, sr):
+def speech_and_pause_level(x, sr, active=None):
     """(speech_dbfs, pause_dbfs), as medians of the active and the silent frames.
 
     Medians so one loud breath in a gap does not decide the floor. A render with
     no frame below the threshold falls back to the quiet tail of the frame
     distribution - treating the floor as unknown would make the caller add noise
     to a stimulus that is already noisy.
+
+    `active` overrides the frame classification. Pass the mask taken from the
+    signal BEFORE noise was added when measuring the result of adding it:
+    re-deriving the mask from the noisy signal counts the now-filled pauses as
+    speech and drags the speech median down. With the absolute threshold that
+    only stayed hidden because the added noise happened to land ~1 dB below it.
     """
     frame_db = _frame_db(x, sr)
-    active = frame_db > SILENCE_THRESHOLD_DBFS
+    if active is None:
+        active = frame_db > SILENCE_THRESHOLD_DBFS
     if not active.any():
         return None, None
     speech = float(np.median(frame_db[active]))
@@ -109,9 +167,18 @@ def match_noise_floor(x, sr, target_snr_db=TARGET_PAUSE_SNR_DB, seed=0):
     Deterministic: the noise is drawn from a seed derived from the stimulus
     name, so rebuilding the test yields byte-identical files.
     """
-    speech, pause = speech_and_pause_level(x, sr)
+    # Classified once, on the untouched signal, and reused for the measurement
+    # after the noise is added - see speech_and_pause_level().
+    active = _frame_db(x, sr) > SILENCE_THRESHOLD_DBFS
+    speech, pause = speech_and_pause_level(x, sr, active=active)
+    # Whether `pause` is a real noise floor or the percentile fallback. Without
+    # this the two cases are indistinguishable downstream, and a fallback value
+    # is not an SNR - it is the dynamic range of the speech.
+    n_silent = int((~active).sum())
     info = {"pause_snr_before_db": None, "pause_snr_after_db": None,
-            "noise_added_dbfs": None, "raised": False}
+            "noise_added_dbfs": None, "raised": False,
+            "n_silent_frames": n_silent,
+            "pause_measured": "floor" if n_silent >= 3 else "fallback"}
     if speech is None or pause is None:
         return x, info
 
@@ -131,7 +198,7 @@ def match_noise_floor(x, sr, target_snr_db=TARGET_PAUSE_SNR_DB, seed=0):
     rng = np.random.default_rng(seed)
     y = (x + noise_rms * _shaped_noise(len(x), rng)).astype(np.float32)
 
-    speech_after, pause_after = speech_and_pause_level(y, sr)
+    speech_after, pause_after = speech_and_pause_level(y, sr, active=active)
     info.update({
         "noise_added_dbfs": round(_db(noise_rms), 2),
         "pause_snr_after_db": (round(speech_after - pause_after, 2)
@@ -212,7 +279,8 @@ def normalize(x, sr, target_lufs=TARGET_LUFS, peak_ceiling_dbfs=PEAK_CEILING_DBF
 
 
 def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COMMON_SR,
-                     span=None, target_pause_snr_db=TARGET_PAUSE_SNR_DB):
+                     span=None, target_pause_snr_db=TARGET_PAUSE_SNR_DB,
+                     mnru_q_db=None):
     """Read, resample, cut, normalize the level, match the pause floor, write.
 
     The cut runs before normalization because BS.1770 loudness is integrated
@@ -220,11 +288,17 @@ def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COM
     of it would leave the excerpts at different levels again.
 
     span is {"start", "end"} in seconds, from select_excerpts.py.
+
+    mnru_q_db turns the stimulus into the low anchor. Applied after the cut and
+    before normalization, so the anchor lands at the same loudness as every
+    other stimulus and differs only in the impairment.
     """
     x, sr = load_mono(src_path)
     x, sr = to_common_sr(x, sr, target_sr)
     if span is not None:
         x = cut(x, sr, span["start"], span["end"])
+    if mnru_q_db is not None:
+        x = mnru(x, mnru_q_db, seed=zlib.crc32(Path(dest_path).name.encode("utf-8")))
     y, info = normalize(x, sr, target_lufs)
 
     # Seed from the destination name: same stimulus set in, same bytes out.
@@ -235,4 +309,5 @@ def prepare_stimulus(src_path, dest_path, target_lufs=TARGET_LUFS, target_sr=COM
     sf.write(str(dest_path), y, sr, subtype="PCM_16")
     info["sample_rate"] = sr
     info["duration_s"] = round(len(y) / sr, 2)
+    info["mnru_q_db"] = mnru_q_db
     return info

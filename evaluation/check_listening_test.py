@@ -28,9 +28,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from myecho.evaluation.audio_qc import (  # noqa: E402
+    PEAK_CEILING_DBFS,
     SILENCE_THRESHOLD_DBFS,
     _frame_db,
     load_mono,
+    measure,
 )
 
 OUT_DIR = Path(__file__).parent / "results" / "listening_test"
@@ -103,6 +105,33 @@ def best_threshold_accuracy(values, is_real):
     return best, direction
 
 
+def paired_cue_accuracy(feature_by_stimulus, pairs):
+    """Accuracy of "the larger (or smaller) of the two is the real one".
+
+    This is the audit that matches the task. best_threshold_accuracy() above
+    classifies each stimulus on its own against a 0.75 base rate (3 clones per
+    real), but a rater in the 2AFC hears the real and one clone of the SAME
+    passage side by side and picks one - so chance is 0.50, and the only thing
+    that matters is which of the two is larger. No threshold is fitted, just a
+    direction, so there is nothing to overfit.
+    """
+    wins = 0
+    total = 0
+    for pair in pairs.values():
+        a = feature_by_stimulus.get(pair["real_id"])
+        b = feature_by_stimulus.get(pair["clone_id"])
+        if a is None or b is None or not (np.isfinite(a) and np.isfinite(b)):
+            continue
+        total += 1
+        if a > b:
+            wins += 1
+    if total == 0:
+        return float("nan"), 0
+    share = wins / total
+    # Whichever direction is the better rule; 0.5 means the feature is useless.
+    return (share, 1) if share >= 0.5 else (1.0 - share, -1)
+
+
 def run_cue_audit(key):
     """Report whether one low-level measurement separates real from clone.
 
@@ -129,15 +158,27 @@ def run_cue_audit(key):
 
     is_real = [r["condition"] == real_condition for r in rows]
     baseline = max(np.mean(is_real), 1 - np.mean(is_real))
-    print(f"  baseline (always answer 'clone') = {baseline:.3f}")
+    by_id = {r["stimulus"]: r for r in rows}
+    pairs = key.get("pairs", {})
+
+    print(f"  single stimulus, base rate 'always answer clone' = {baseline:.3f}")
+    print(f"  paired within a 2AFC pair, chance = 0.500  <- this is the rater's task")
+    print(f"  {'feature':16s} {'single':>8s} {'paired':>8s}  verdict")
     for name, description in FEATURES.items():
         accuracy, _ = best_threshold_accuracy([r[name] for r in rows], is_real)
-        margin = accuracy - baseline
-        verdict = ("no usable cue" if margin <= 0.03 else
-                   "weak residual cue" if margin <= 0.10 else
+        paired, direction = paired_cue_accuracy(
+            {sid: row[name] for sid, row in by_id.items()}, pairs)
+        # Judged on the paired number: it is the strategy actually available to
+        # a rater, and its chance level is not affected by how many clones there
+        # are per real recording.
+        margin = (paired - 0.5) if np.isfinite(paired) else 0.0
+        verdict = ("no usable cue" if margin <= 0.05 else
+                   "weak residual cue" if margin <= 0.15 else
                    "STRONG CUE - mitigate or report it")
-        print(f"  {name:16s} acc={accuracy:.3f} ({margin:+.3f})  {verdict}")
-    print(f"  per-stimulus features -> {AUDIT_CSV}")
+        arrow = "" if margin <= 0.05 else (" (larger=real)" if direction > 0
+                                           else " (smaller=real)")
+        print(f"  {name:16s} {accuracy:8.3f} {paired:8.3f}  {verdict}{arrow}")
+    print(f"  n pairs = {len(pairs)}; per-stimulus features -> {AUDIT_CSV}")
 
 
 class Report:
@@ -192,7 +233,10 @@ def check_blinding(report, key, html, samples, share):
 def check_design(report, key, manifest):
     stimuli, pairs = key["stimuli"], key["pairs"]
     real = key.get("real_condition", "REAL")
-    models = [c for c in key["conditions"] if c != real]
+    anchor = key.get("anchor_condition")
+    # The anchor is rated but never paired, so it is not a model: counting it as
+    # one would make the coverage check expect pairs that must not exist.
+    models = [c for c in key["conditions"] if c not in (real, anchor)]
 
     overlaps = []
     for plan in manifest["plans"]:
@@ -228,6 +272,24 @@ def check_design(report, key, manifest):
                  "balance: each model appears equally often across plans",
                  dict(plan_models))
 
+    # The manifest ships in index.html, so an order that correlates with
+    # condition de-blinds the whole test without anyone touching key.json -
+    # and a check that only greps for condition NAMES cannot see it. The
+    # builder emits one block per text, so the natural bug is a fixed cycle:
+    # every position p has condition p % len(conditions).
+    n_cond = len(key["conditions"])
+    positional = []
+    for plan in manifest["plans"]:
+        for residue in range(n_cond):
+            at_residue = {stimuli[s]["condition"]
+                          for i, s in enumerate(plan["nmos"]) if i % n_cond == residue}
+            if len(at_residue) == 1 and len(plan["nmos"]) > n_cond:
+                positional.append((plan["id"], residue, at_residue.pop()))
+    report.check(not positional,
+                 "blinding: position in the manifest does not reveal the condition",
+                 f"leaked: {positional[:4]}" if positional
+                 else f"{len(manifest['plans'])} plans, no positional pattern")
+
 
 def check_files(report, manifest, key, samples):
     referenced = set(manifest["files"])
@@ -253,27 +315,54 @@ def check_files(report, manifest, key, samples):
                  f"{len(manifest['training'])} items")
 
 
+def measured_lufs(stimulus_id):
+    """Integrated loudness of the file as written, or None if unreadable."""
+    path = OUT_DIR / "samples" / f"{stimulus_id}.wav"
+    if not path.exists():
+        return None
+    import pyloudnorm
+
+    x, sr = load_mono(path)
+    if len(x) / sr < 0.4:  # BS.1770 needs one 400 ms block
+        return None
+    value = pyloudnorm.Meter(sr).integrated_loudness(x)
+    return float(value) if np.isfinite(value) else None
+
+
 def check_levels(report, key, target_lufs, target_pause_snr):
     achieved = [(sid, info["levels"]) for sid, info in key["stimuli"].items()]
-    off_level = [(sid, lv["achieved_lufs"]) for sid, lv in achieved
-                 if lv.get("achieved_lufs") is not None
-                 and abs(lv["achieved_lufs"] - target_lufs) > LOUDNESS_TOLERANCE_LU]
+
+    # Measured from the written files, not read back from the key. The key's
+    # achieved_lufs is the arithmetic prediction before_lufs + gain_db, and the
+    # pause floor is added afterwards - checking it against itself would pass
+    # even if nothing had reached the disk correctly.
+    off_level = []
+    for sid, _ in achieved:
+        value = measured_lufs(sid)
+        if value is not None and abs(value - target_lufs) > LOUDNESS_TOLERANCE_LU:
+            off_level.append((sid, round(value, 2)))
     report.check(not off_level, f"levels: all stimuli within {LOUDNESS_TOLERANCE_LU} LU "
-                 f"of {target_lufs} LUFS", f"{off_level[:3]}" if off_level else "")
+                 f"of {target_lufs} LUFS (measured on the written files)",
+                 f"{off_level[:3]}" if off_level
+                 else f"{len(achieved)} files measured")
+
+    # A pause floor that could not be measured at all is not "already fine":
+    # speech_and_pause_level() falls back to a percentile of the speech frames,
+    # so the reported SNR is speech dynamics and the matching is skipped on a
+    # number that means nothing. Those stimuli keep an unmatched floor.
+    unmeasured = [(sid, lv.get("n_silent_frames")) for sid, lv in achieved
+                  if lv.get("pause_measured") == "fallback"]
+    report.check(not unmeasured,
+                 "levels: every stimulus has a measurable pause floor",
+                 f"fallback used for {unmeasured[:3]}" if unmeasured
+                 else f"{len(achieved)} stimuli")
 
     snrs = [(sid, lv["pause_snr_after_db"]) for sid, lv in achieved
             if lv.get("pause_snr_after_db") is not None]
 
-    # The two directions mean opposite things and only one is a defect.
-    #
     # CLEANER pauses than the target means the matching did not do its job, and
     # a stimulus with unnaturally silent gaps is exactly the cue that made the
     # first version of this test winnable without listening to a voice.
-    #
-    # NOISIER pauses than the target is expected and is left alone on purpose:
-    # the source itself generates noise in its gaps. Lowering it would mean
-    # denoising one condition and not the others. It also cannot help a rater
-    # find the real recording, since the real side sits at the target.
     too_clean = [(sid, round(v, 1)) for sid, v in snrs
                  if v > target_pause_snr + PAUSE_SNR_TOLERANCE_DB]
     noisier = [(sid, round(v, 1)) for sid, v in snrs
@@ -285,13 +374,52 @@ def check_levels(report, key, target_lufs, target_pause_snr):
                  f"-{target_pause_snr:.0f} dB (the giveaway direction)",
                  f"unmatched: {too_clean[:3]}" if too_clean
                  else f"spread {spread:.1f} dB across {len(snrs)} stimuli")
-    if noisier:
-        print(f"  [note] {len(noisier)} stimulus/stimuli noisier than the target "
-              f"by design (own noise floor): {noisier[:3]}")
-        for sid, _ in noisier:
-            info = key["stimuli"][sid]
-            print(f"         {sid} = {info['condition']}/{info['text_id']} - a "
-                  "property of that render, left untouched")
+
+    # Noisier than the target used to be waved through as "a property of that
+    # render". That is only half true. Adding noise to a floor is refused on
+    # purpose (lowering one would mean denoising one condition and not the
+    # others), but the CONSEQUENCE is still a cue: with the real side sitting at
+    # the target and one condition far below it, "the cleaner one is real" wins
+    # inside exactly those pairs. So the spread is reported as a finding to
+    # carry into the results, not as an expected note.
+    report.check(spread <= 2 * PAUSE_SNR_TOLERANCE_DB,
+                 f"levels: pause floors sit within {2 * PAUSE_SNR_TOLERANCE_DB:.0f} dB "
+                 f"of each other",
+                 f"spread {spread:.1f} dB - report this next to the 2AFC results; "
+                 f"noisiest: {sorted(noisier)[:3]}" if spread > 2 * PAUSE_SNR_TOLERANCE_DB
+                 else f"spread {spread:.1f} dB")
+    for sid, value in noisier:
+        info = key["stimuli"][sid]
+        print(f"         {sid} = {info['condition']}/{info['text_id']} at {value} dB")
+
+
+def measured_peak_clip(stimulus_id):
+    """(peak_dbfs, clipped_ratio) of the file as written, or (None, None)."""
+    path = OUT_DIR / "samples" / f"{stimulus_id}.wav"
+    if not path.exists():
+        return None, None
+    x, sr = load_mono(path)
+    m = measure(x, sr)
+    return m["peak_dbfs"], m["clipped_ratio"]
+
+
+def check_clipping(report, key, peak_ceiling_dbfs):
+    # Measured on the written files: normalize() respects the ceiling, but
+    # match_noise_floor() adds noise to the WHOLE signal afterwards, which can
+    # push a speech peak that was already close to the ceiling over it, and PCM_16
+    # writing then clips it. Neither step re-checks the peak, so only the file on
+    # disk can tell.
+    stats = {sid: measured_peak_clip(sid) for sid in key["stimuli"]}
+    measured = {sid: v for sid, v in stats.items() if v[0] is not None}
+
+    clipped = [(sid, ratio) for sid, (_, ratio) in measured.items() if ratio > 0]
+    report.check(not clipped, "clipping: no stimulus has any sample at full scale",
+                 f"{sorted(clipped)[:5]}" if clipped else f"{len(measured)} files measured")
+
+    over_ceiling = [(sid, peak) for sid, (peak, _) in measured.items() if peak > peak_ceiling_dbfs]
+    report.check(not over_ceiling,
+                 f"clipping: no stimulus exceeds the {peak_ceiling_dbfs} dBFS peak ceiling",
+                 f"{sorted(over_ceiling)[:5]}" if over_ceiling else f"{len(measured)} files measured")
 
 
 def main():
@@ -315,6 +443,7 @@ def main():
     check_files(report, manifest, key, OUT_DIR / "samples")
     check_levels(report, key, key.get("target_lufs", -23.0),
                  key.get("target_pause_snr_db", 26.0))
+    check_clipping(report, key, PEAK_CEILING_DBFS)
 
     print("\nCue audit - could one measurement give the answer away?")
     run_cue_audit(key)

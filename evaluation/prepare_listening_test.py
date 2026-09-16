@@ -45,6 +45,7 @@ from myecho.evaluation.audio_qc import (  # noqa: E402
     TARGET_PAUSE_SNR_DB,
     prepare_stimulus,
 )
+from myecho.evaluation.excerpt import render_path  # noqa: E402
 
 TESTSET_PATH = Path(__file__).parent / "testset.json"
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -59,10 +60,13 @@ AUDIO_EXT = "wav"
 # the Turing part. Named so it cannot collide with a model directory name.
 REAL = "REAL"
 
-# Texts are split into this many role groups. 2 = half the texts go to the
-# N-MOS part for a given rater and half to the Turing part, so nobody meets the
-# same text twice. Raising it shortens the session and lowers coverage per
-# rater; the plan count is ROLE_GROUPS x len(models).
+# Texts are split into this many role groups. A plan sends the texts where
+# i % ROLE_GROUPS == g to the Turing part and everything else to the N-MOS part,
+# so nobody meets the same text twice. 2 splits them evenly.
+#
+# Raising it LENGTHENS the session: only 1/ROLE_GROUPS of the texts go to the
+# Turing part, so the N-MOS part grows. The plan count is ROLE_GROUPS x
+# len(models).
 ROLE_GROUPS = 2
 
 # Unscored items shown before the real ones so the rater has heard the range of
@@ -110,7 +114,7 @@ def find_models(case_dir):
 
 
 def clone_audio_path(case_dir, model, index, text_id):
-    return case_dir / model / f"{index:02d}_{text_id}.{AUDIO_EXT}"
+    return render_path(case_dir, model, index, text_id, AUDIO_EXT)
 
 
 def load_exclusions():
@@ -232,10 +236,13 @@ def training_items(case_dir, conditions, texts, skip_texts, spans, index_of, n=N
     heard both ends of the material before the first scored item.
     """
     picked, used_models = [], set()
+    # REAL first, then clones from different models, so the rater has heard the
+    # reference and the range of the systems before anything counts.
+    order = [REAL] + [c for c in conditions if c != REAL]
     for entry in texts:
         if entry["id"] not in skip_texts:
             continue
-        for cond in [REAL] + [c for c in conditions if c != REAL]:
+        for cond in order:
             if len(picked) >= n:
                 return picked
             if cond != REAL and cond in used_models:
@@ -368,7 +375,12 @@ def main():
         })
         if not info["reached_target"]:
             print(f"  WARNING {anon_id} ({item['cond']}/{item['text_id']}): {info['reason']}")
-        if info["pause_snr_before_db"] is not None and not info["raised"]:
+        if info.get("pause_measured") == "fallback":
+            print(f"  WARNING {anon_id} ({item['cond']}/{item['text_id']}): only "
+                  f"{info['n_silent_frames']} silent frame(s) - the pause floor could "
+                  f"not be measured, so {info['pause_snr_before_db']} dB is speech "
+                  f"dynamics, not an SNR. Not matched.")
+        elif info["pause_snr_before_db"] is not None and not info["raised"]:
             print(f"  NOTE {anon_id} ({item['cond']}/{item['text_id']}): pause floor "
                   f"already above target ({info['pause_snr_before_db']} dB) - not lowered")
 
@@ -406,6 +418,13 @@ def main():
                     for text_id in plan["nmos_texts"]
                     for cond in conditions
                     if (cond, text_id, "scored") in by_key]
+        # Shuffled before shipping. The loops above emit one block of
+        # `conditions` per text in a fixed order, so without this every
+        # position i is condition i % len(conditions) - readable straight out
+        # of index.html, which de-blinds both parts of the test. The page
+        # reshuffles per rater for presentation, but that happens after the
+        # manifest has already been handed over.
+        rng.shuffle(nmos_ids)
         manifest_plans.append({"id": i, "nmos": nmos_ids, "turing": plan["pairs"]})
 
     training_ids = [by_key[(t["cond"], t["text_id"], "training")] for t in training]
@@ -421,7 +440,8 @@ def main():
                   "excerpt_start_s", "excerpt_end_s", "match_ratio",
                   "gain_db", "achieved_lufs", "reached_target", "reason",
                   "pause_snr_before_db", "pause_snr_after_db", "noise_added_dbfs",
-                  "raised", "sample_rate"]
+                  "raised", "pause_measured", "n_silent_frames",
+                  "sample_rate"]
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(stimuli_rows)

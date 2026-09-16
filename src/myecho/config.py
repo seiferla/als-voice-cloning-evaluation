@@ -35,7 +35,7 @@ QWEN3_BASE_WS_API_URL = f"wss://{QWEN3_API_HOST}/api-ws/v1/inference"
 QWEN3_BASE_WS_REALTIME_URL = f"wss://{QWEN3_API_HOST}/api-ws/v1/realtime"
 
 # Optional: only needed when the key is not already scoped to the workspace.
-QWEN3_WORKSPACE_ID = os.getenv("DASHSCOPE_WORKSPACE_ID") or None
+QWEN3_WORKSPACE_ID = os.getenv("QWEN3_WORKSPACE_ID") or os.getenv("DASHSCOPE_WORKSPACE_ID") or None
 
 # Language hint for synthesis ("de", "en", ... or None for auto-detect)
 QWEN3_LANGUAGE_TYPE = os.getenv("QWEN3_LANGUAGE_TYPE", "de")

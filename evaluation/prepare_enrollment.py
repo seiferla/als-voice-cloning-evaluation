@@ -50,7 +50,7 @@ PROVIDER_SETTINGS = {
         "enable_preprocess": False,
         "why": "True runs server-side denoising, so qwen3 would receive different "
                "audio from the other two",
-        "how": "python qwen_voice_enroll.py create --audio {output} --name {name}",
+        "how": "uv run python tools/qwen3_voice_enroll.py create --audio {output} --name {name}",
     },
     "voxtral": {
         "gender_hint": None,

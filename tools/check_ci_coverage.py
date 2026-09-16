@@ -20,7 +20,11 @@ from pathlib import Path
 
 import numpy as np
 
-OUT_DIR = Path(__file__).parent / "results" / "listening_test"
+# This script lives in tools/, the built test lives under evaluation/. Resolving
+# against __file__.parent pointed at tools/results/, which never exists, so the
+# nominal-design fallback below ran every time and silently reported numbers for
+# a design that was not the one built.
+OUT_DIR = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "listening_test"
 
 # Variance components, in MOS points. Defaults are deliberately pessimistic
 # rather than fitted: this is a design check, run before any data exists.

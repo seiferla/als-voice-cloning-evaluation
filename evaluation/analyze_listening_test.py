@@ -29,6 +29,12 @@ OUT_DIR = Path(__file__).parent / "results" / "listening_test"
 KEY_PATH = OUT_DIR / "key.json"
 RESPONSES_DIR = OUT_DIR / "responses"
 
+# Below this many raters the bootstrap cannot estimate between-rater variance:
+# resampling raters with replacement from a set of one always returns that one
+# rater, so the interval is really only over texts and says nothing about
+# whether another person would agree. Verdicts are suppressed below it.
+MIN_RATERS_FOR_VERDICTS = 5
+
 N_BOOTSTRAP = 2000
 BOOTSTRAP_SEED = 20260901
 CI = 0.95
@@ -59,9 +65,24 @@ def load_responses():
     jsonl_path = RESPONSES_DIR / "all_ratings.jsonl"
     if jsonl_path.exists():
         with open(jsonl_path, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    raw.append((jsonl_path.name, json.loads(line)))
+            for lineno, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                # A rare server-side write race can interleave two concurrent
+                # submissions onto one line with no newline between them.
+                # Decode every JSON object present rather than losing (or
+                # crashing on) the whole line.
+                decoder = json.JSONDecoder()
+                text, pos = line, 0
+                while pos < len(text) and text[pos:].strip():
+                    try:
+                        obj, end = decoder.raw_decode(text, pos)
+                    except json.JSONDecodeError:
+                        print(f"  WARNING: skipping unparseable data on "
+                              f"{jsonl_path.name}:{lineno}: {text[pos:pos + 80]!r}")
+                        break
+                    raw.append((jsonl_path.name, obj))
+                    pos = end
 
     seen, responses, duplicates, legacy = set(), [], 0, 0
     for source, response in raw:
@@ -228,6 +249,7 @@ def fooling_rate(rows):
 def nmos_report(key, rows):
     """Per-condition means with CI, plus every pairwise difference."""
     real = key.get("real_condition", "REAL")
+    anchor = key.get("anchor_condition")
     scored = [r for r in rows if not r["repeat"]]
     conditions = sorted({r["condition"] for r in scored},
                         key=lambda c: (c == real, c))
@@ -243,6 +265,7 @@ def nmos_report(key, rows):
         summary.append({
             "condition": condition,
             "is_reference": condition == real,
+            "is_anchor": condition == anchor,
             "mean": round(mean, 3) if mean is not None else None,
             "ci_low": round(low, 3), "ci_high": round(high, 3),
             "sd_of_answers": round(statistics.stdev([r["rating"] for r in subset]), 3)
@@ -258,12 +281,19 @@ def nmos_report(key, rows):
     # interval is still reported - it is the estimate - but the verdict column
     # uses a Bonferroni-adjusted level, which is the conservative choice and the
     # one a reader can check.
-    n_comparisons = len(conditions) * (len(conditions) - 1) // 2
+    #
+    # The low anchor is reported in the summary above but kept OUT of this
+    # family. It is a fixed reference point for how the scale is being used, not
+    # a system under test, so comparing it costs adjustment budget for a
+    # question nobody asked - and the answer ("the deliberately degraded one
+    # scores worst") carries no information.
+    compared = [c for c in conditions if c != anchor]
+    n_comparisons = len(compared) * (len(compared) - 1) // 2
     adjusted_ci = 1 - (1 - CI) / max(n_comparisons, 1)
 
     pairwise = []
-    for i, a in enumerate(conditions):
-        for b in conditions[i + 1:]:
+    for i, a in enumerate(compared):
+        for b in compared[i + 1:]:
             subset = [r for r in scored if r["condition"] in (a, b)]
 
             def difference(rs, a=a, b=b):
@@ -430,6 +460,22 @@ def write_csv(path, rows, fields):
         writer.writerows(rows)
 
 
+def underpowered_warning(n_raters):
+    """Text to print when there are too few raters for the intervals to mean much."""
+    return (
+        f"\n{'=' * 70}\n"
+        f"PILOT DATA - {n_raters} rater(s). Do not read these numbers as results.\n"
+        f"{'=' * 70}\n"
+        f"The intervals resample raters and texts. With {n_raters} rater(s) the\n"
+        f"rater dimension contributes nothing, so what is shown is a within-rater\n"
+        f"interval over texts only: it does not say whether anyone else would\n"
+        f"agree. Comparison verdicts are suppressed for that reason.\n"
+        f"The design needs about 30 raters to detect a 0.30 MOS difference\n"
+        f"(tools/check_ci_coverage.py). Use this run to check the procedure, not\n"
+        f"to compare the systems.\n"
+    )
+
+
 def write_summaries(key, responses, quiet=False):
     """Recompute every summary from scratch.
 
@@ -441,13 +487,16 @@ def write_summaries(key, responses, quiet=False):
     turing = turing_rows(key, responses)
     real = key.get("real_condition", "REAL")
 
+    n_raters = len({r["rater"] for r in nmos} | {r["rater"] for r in turing})
+    underpowered = n_raters < MIN_RATERS_FOR_VERDICTS
+
     summary, pairwise = nmos_report(key, nmos)
     turing_summary = turing_report(turing)
     familiarity = familiarity_interaction(turing)
     reliability = reliability_report(nmos)
 
     write_csv(OUT_DIR / "nmos_summary.csv", summary,
-              ["condition", "is_reference", "mean", "ci_low", "ci_high",
+              ["condition", "is_reference", "is_anchor", "mean", "ci_low", "ci_high",
                "sd_of_answers", "n_answers", "n_raters", "n_items"])
     write_csv(OUT_DIR / "nmos_pairwise.csv", pairwise,
               ["condition_a", "condition_b", "difference", "ci_low", "ci_high",
@@ -471,6 +520,9 @@ def write_summaries(key, responses, quiet=False):
     if quiet:
         return summary, turing_summary
 
+    if underpowered:
+        print(underpowered_warning(n_raters))
+
     print(f"\n=== Naturalness (ACR 1-5), {len(responses)} rater(s) ===")
     print("Mean of per-rater means; CI from a two-way cluster bootstrap over "
           "raters and texts.")
@@ -480,6 +532,15 @@ def write_summaries(key, responses, quiet=False):
               f"95% CI [{row['ci_low']:.2f}, {row['ci_high']:.2f}]  "
               f"n={row['n_answers']:4d} answers / {row['n_items']} items / "
               f"{row['n_raters']} raters{mark}")
+
+    reference = next((r for r in summary if r["is_reference"]), None)
+    if reference and reference["sd_of_answers"] == 0.0 and reference["n_answers"] > 1:
+        print(f"\n  NOTE {real} was given the identical score on all "
+              f"{reference['n_answers']} items ({reference['mean']:.1f}).\n"
+              "  A real phone recording scoring the top of the scale every time "
+              "usually means\n  the rater recognized which items were genuine and "
+              "scored that, not naturalness.\n  Check the scale wording and the "
+              "training items before collecting more.")
 
     anchor = next((r for r in summary if r["is_reference"]), None)
     if anchor and anchor["mean"]:
@@ -499,7 +560,8 @@ def write_summaries(key, responses, quiet=False):
     for row in pairwise:
         if real in (row["condition_a"], row["condition_b"]):
             continue
-        verdict = ("difference" if row["excludes_zero_adj"]
+        verdict = ("not enough raters to judge" if underpowered
+                   else "difference" if row["excludes_zero_adj"]
                    else "difference at 95% only, not after adjustment"
                    if row["excludes_zero"] else "no difference detected")
         print(f"    {row['condition_a']:8s} - {row['condition_b']:8s} "
@@ -515,17 +577,20 @@ def write_summaries(key, responses, quiet=False):
             continue
         print(f"\n  --- {label} ---")
         for row in group:
+            chance = ("not enough raters to judge" if underpowered
+                      else row["vs_chance"])
             print(f"    {row['model']:8s} {row['fooling_rate']:.2f}  "
                   f"95% CI [{row['ci_low']:.2f}, {row['ci_high']:.2f}]  "
                   f"n={row['n_answers']:3d} / {row['n_items']} items / "
-                  f"{row['n_raters']} raters  - {row['vs_chance']}")
+                  f"{row['n_raters']} raters  - {chance}")
 
     if familiarity:
         print("\n  Does knowing the speaker change the fooling rate?")
         print("  (the contrast with its own interval - two separate subgroup "
               "intervals are not a test)")
         for row in familiarity:
-            verdict = "yes" if row["excludes_zero"] else "not detectable at this n"
+            verdict = ("not enough raters to judge" if underpowered
+                       else "yes" if row["excludes_zero"] else "not detectable at this n")
             print(f"    {row['model']:8s} {row['difference']:+.2f}  "
                   f"CI [{row['ci_low']:+.2f}, {row['ci_high']:+.2f}]  "
                   f"({row['n_knows']} know / {row['n_does_not']} do not) -> {verdict}")
@@ -539,8 +604,11 @@ def write_summaries(key, responses, quiet=False):
         print("  A condition difference smaller than this is inside the noise of "
               "one rater's own scale.")
 
-    mixed_models(nmos, turing, real)
+    if not underpowered:
+        mixed_models(nmos, turing, real)
     print(f"\nSummaries written to {OUT_DIR}")
+    if underpowered:
+        print(underpowered_warning(n_raters))
     return summary, turing_summary
 
 

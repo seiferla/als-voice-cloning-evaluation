@@ -7,9 +7,9 @@ Creates a voice clone usable over the realtime WebSocket path
 Requires QWEN3_API_KEY (a Singapore key) and QWEN3_WORKSPACE_ID in .env.
 
 Examples:
-    python qwen_voice_enroll.py create --audio ref.wav --name larsrt
-    python qwen_voice_enroll.py list
-    python qwen_voice_enroll.py delete --voice qwen-tts-vc-...
+    uv run python tools/qwen3_voice_enroll.py create --audio ref.wav --name larsrt
+    uv run python tools/qwen3_voice_enroll.py list
+    uv run python tools/qwen3_voice_enroll.py delete --voice qwen-tts-vc-...
 """
 
 from __future__ import annotations

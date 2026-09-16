@@ -39,7 +39,42 @@ SKIP_HEAD_FRAC = 0.15
 # did not actually say the excerpt (skipped or garbled it) - report, never cut.
 MIN_MATCH_RATIO = 0.6
 
+# Tokens a matching block must contain before it may define the START or END of
+# the span. A single common word ("das", "und") also occurs elsewhere in the
+# transcript, and taking the first and last block outright then stretches the
+# span across everything in between.
+#
+# Measured on this set: one stray "das" turned a correct 8.5 s excerpt into a
+# 31.2 s span, which reject_runaway_spans then threw out as a broken render -
+# and because an excluded rendition drops its text for every condition, two
+# perfectly good texts were lost. Eighteen further excerpts were silently
+# stretched by 0.5-5.2 s instead, which is worse: those were cut and used, so
+# the conditions no longer held matched content.
+#
+# The match ratio above still counts every matched token. A one-token block is
+# evidence the system said the word; it is just not a trustworthy boundary.
+MIN_ANCHOR_TOKENS = 3
+
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+# Which render of a text to use downstream when run_eval.py was given more than
+# one repeat. It writes "<idx>_<text>.wav" for --repeats 1 but
+# "<idx>_<text>_r1.wav", "_r2", "_r3" for more, so a consumer that only builds
+# the plain name silently finds nothing - or worse, an unsuffixed leftover from
+# an earlier run, which is what happened here.
+#
+# Repeat 1 is taken by rule, never the best-sounding one: picking per stimulus
+# would be selecting on the outcome. The repeats exist to quantify run-to-run
+# spread in the objective metrics, not to shop for a good take.
+FIRST_REPEAT_SUFFIX = "_r1"
+
+
+def render_path(case_dir, model, index, text_id, ext="wav"):
+    """Path to the render of one text by one model, whatever --repeats was used."""
+    plain = case_dir / model / f"{index:02d}_{text_id}.{ext}"
+    if plain.exists():
+        return plain
+    return case_dir / model / f"{index:02d}_{text_id}{FIRST_REPEAT_SUFFIX}.{ext}"
 
 
 def _words(seconds):
@@ -171,7 +206,11 @@ def locate_span(word_times, excerpt_text, min_match=MIN_MATCH_RATIO):
     if ratio < min_match:
         return None
 
-    first, last = blocks[0], blocks[-1]
+    # Boundaries come from substantial blocks only - see MIN_ANCHOR_TOKENS. If
+    # nothing is that long the match is scattered anyway, so fall back to all of
+    # them rather than losing the rendition entirely.
+    anchors = [b for b in blocks if b.size >= MIN_ANCHOR_TOKENS] or blocks
+    first, last = anchors[0], anchors[-1]
     return {
         "start": timed[first.a][1],
         "end": timed[last.a + last.size - 1][2],

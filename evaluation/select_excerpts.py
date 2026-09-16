@@ -30,6 +30,7 @@ from myecho.evaluation.excerpt import (  # noqa: E402
     TARGET_S,
     WORDS_PER_SECOND,
     locate_span,
+    render_path,
     select_excerpt,
 )
 from myecho.evaluation.metrics import WHISPER_MODEL, transcribe_words  # noqa: E402
@@ -46,6 +47,7 @@ EXCERPTS_PATH = RESULTS_DIR / "excerpts.json"
 ALIGN_DIR = RESULTS_DIR / "alignments"
 
 AUDIO_EXT = "wav"
+REAL = "REAL"
 
 
 def load_case(case_name=None):
@@ -80,13 +82,13 @@ def candidates(case_dir, texts):
     out = []
     for model in models:
         for i, entry in enumerate(texts):
-            path = case_dir / model / f"{i:02d}_{entry['id']}.{AUDIO_EXT}"
+            path = render_path(case_dir, model, i, entry["id"], AUDIO_EXT)
             if path.exists():
                 out.append((model, entry["id"], path))
     for entry in texts:
         path = real_audio_path(entry["source_audio"])
         if path.exists():
-            out.append(("REAL", entry["id"], path))
+            out.append((REAL, entry["id"], path))
     return out
 
 
@@ -118,15 +120,30 @@ def reject_runaway_spans(spans, max_ratio=MAX_SPAN_RATIO):
     material does exactly that. Compared against the per-text median across
     renditions, so a text that is simply long for everyone is not penalized.
 
+    The median is taken over the MODEL renditions only. The speaker is slower
+    than every model on this material (2.53 vs 2.7-3.0 words/s), so including
+    her recording raises the median and widens the limit for the models: the
+    21.1 s voxtral span passed at 1.91x of the four-way median where it is
+    2.08x of the model-only one. qc_samples.py already excludes REAL from its
+    per-text medians for the same reason.
+
     Returns (kept, rejected) where rejected is [(source, text_id, reason), ...].
     """
     by_text = {}
     for key, span in spans.items():
-        by_text.setdefault(key.split("/", 1)[1], []).append(span["duration"])
+        source, text_id = key.split("/", 1)
+        if source == REAL:
+            continue
+        by_text.setdefault(text_id, []).append(span["duration"])
 
     kept, rejected = {}, []
     for key, span in spans.items():
         source, text_id = key.split("/", 1)
+        if source == REAL or text_id not in by_text:
+            # REAL is the yardstick, not a candidate for rejection - and with no
+            # model rendition to compare against there is nothing to judge.
+            kept[key] = span
+            continue
         limit = median(by_text[text_id]) * max_ratio
         if span["duration"] > limit:
             rejected.append((source, text_id,

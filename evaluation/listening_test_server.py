@@ -16,7 +16,9 @@ import errno
 import functools
 import http.server
 import json
+import re
 import threading
+import urllib.parse
 from pathlib import Path
 
 from analyze_listening_test import load_key, load_responses, write_summaries
@@ -29,6 +31,11 @@ PORT = 8765
 # recompute and rewrite the same CSVs concurrently.
 _summary_lock = threading.Lock()
 
+# ThreadingHTTPServer runs each request in its own thread, so two raters
+# submitting close together can otherwise append to all_ratings.jsonl at the
+# same time and interleave their writes into one corrupted line.
+_append_lock = threading.Lock()
+
 
 def update_summaries():
     with _summary_lock:
@@ -40,6 +47,32 @@ def update_summaries():
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # Only the page and the stimuli. OUT_DIR also holds key.json (the answer
+    # key), stimuli.csv, run_meta.json and responses/ with the sessions of
+    # everyone who came before - SimpleHTTPRequestHandler would serve all of
+    # them to any rater who types the path.
+    _ALLOWED_PATHS = frozenset({"/", "/index.html"})
+    _ALLOWED_PATTERN = re.compile(r"/samples/s_\d{3}\.wav\Z")
+
+    def _permitted(self):
+        path = urllib.parse.urlparse(self.path).path
+        path = urllib.parse.unquote(path)
+        if path in self._ALLOWED_PATHS:
+            return True
+        return bool(self._ALLOWED_PATTERN.fullmatch(path))
+
+    def do_GET(self):
+        if not self._permitted():
+            self.send_error(404)
+            return
+        super().do_GET()
+
+    def do_HEAD(self):
+        if not self._permitted():
+            self.send_error(404)
+            return
+        super().do_HEAD()
+
     def do_POST(self):
         if self.path != "/submit":
             self.send_error(404)
@@ -53,8 +86,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
-        with open(RESPONSES_DIR / "all_ratings.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with _append_lock:
+            with open(RESPONSES_DIR / "all_ratings.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
         answered = sum(1 for r in payload.get("nmos", []) if r.get("rating") is not None)
         chosen = sum(1 for t in payload.get("turing", []) if t.get("choice") is not None)
