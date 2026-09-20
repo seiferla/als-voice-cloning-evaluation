@@ -1,0 +1,41 @@
+% ---------------------------------------------------------------------------
+% \section*{Conclusion}. About half a page.
+%
+% Covers guideline point 5 (Kurze Zusammenfassung) and the "lesson-learned"
+% bullet of point 4. The dual-use argument is made in the Discussion and only
+% referenced here.
+% ---------------------------------------------------------------------------
+
+\section*{Conclusion}
+\label{conclusion}
+
+This study asked how much of a voice can be reconstructed from material that was
+never recorded for that purpose: $42$ WhatsApp voice messages, half an hour in
+total, from a patient who has since lost her speech. Three commercial zero-shot
+services were compared against her own recordings as a fourth condition, using
+objective metrics, a naturalness test and a voice Turing test with $30$ raters.
+Two of the three systems are rated as natural as the genuine recordings, none
+passes as the patient in a direct comparison, and S2 Pro is recommended for
+deployment (Section~\ref{model_selection}). Legacy material is therefore
+sufficient for an assistive voice, if not for a replica of the original.
+
+Three lessons carry beyond this case. First, zero-shot cloning from a reference
+of a few seconds matched the fine-tuned model in a listening comparison at a
+fraction of the compute, which made the fine-tuning path unnecessary. Second,
+preprocessing was not made redundant by that change, as was expected at the
+time. DeepFilterNet removed the background noise from the phone recordings
+without audible damage, and the cleaned reference is what all three services
+were enrolled with; yet the same denoising produced the digitally silent pauses
+that the listening test then had to neutralise. A preprocessing step can solve
+one problem and create another further down the pipeline. Third, the objective
+metrics pointed at the wrong system, and only the listening test made that
+visible. That the same ease of cloning has a second reading is set out in the
+Discussion.
+
+The next step is deployment. The pipeline built here becomes the backend of an
+application in which a user uploads a recording, the file is cleaned in the
+background and a clone is created from it. Two points remain open before that.
+Self-hosting, one of the stated requirements, was not tested, since all three
+systems were used through their providers' APIs. And a follow-up study would
+need several speakers, a hearing screening, and raters whose age is not tied to
+their familiarity with the speaker.

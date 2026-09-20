@@ -1,0 +1,5 @@
+condition,is_reference,is_anchor,mean,ci_low,ci_high,sd_of_answers,n_answers,n_raters,n_items
+qwen3,False,False,3.041,2.71,3.374,1.222,197,30,13
+s2pro,False,False,3.924,3.636,4.216,0.987,197,30,13
+voxtral,False,False,4.055,3.788,4.336,1.016,197,30,13
+REAL,True,False,4.156,3.805,4.459,0.956,196,30,13

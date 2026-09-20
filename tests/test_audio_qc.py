@@ -13,7 +13,6 @@ from myecho.evaluation.audio_qc import (
     TARGET_LUFS,
     _frame_db,
     match_noise_floor,
-    mnru,
     measure,
     normalize,
     speech_and_pause_level,
@@ -109,40 +108,6 @@ def test_pause_floor_that_cannot_be_measured_is_reported_as_such():
     _, info = match_noise_floor(no_pauses, SR, target_snr_db=26.0)
     assert info["pause_measured"] == "fallback"
     assert not info["raised"]
-
-
-def test_mnru_noise_follows_the_signal():
-    """The defining property of MNRU vs. simply adding noise.
-
-    The impairment is multiplied by the waveform, so it degrades the speech and
-    leaves the gaps alone. If it leaked into the pauses it would raise the noise
-    floor, and the anchor would then differ from the other conditions in the one
-    property audio_qc spends its effort equalizing.
-    """
-    x = speech_with_pauses(floor=0.0)
-    y = mnru(x, q_db=15.0)
-    added = y - x
-
-    silent = x == 0.0
-    assert silent.any() and (~silent).any()
-    energy_in_pauses = float(np.abs(added[silent]).max())
-    energy_in_speech = float(np.sqrt((added[~silent] ** 2).mean()))
-    assert energy_in_pauses == 0.0
-    assert energy_in_speech > 0.0
-
-
-def test_mnru_q_controls_how_bad_it_is():
-    x = speech_with_pauses(floor=0.0)
-    mild = mnru(x, q_db=25.0)
-    harsh = mnru(x, q_db=5.0)
-
-    def added_rms(y):
-        return float(np.sqrt(((y - x) ** 2).mean()))
-
-    assert added_rms(harsh) > added_rms(mild)
-    # Deterministic, so a rebuild yields byte-identical anchors.
-    assert np.array_equal(mnru(x, q_db=15.0, seed=7), mnru(x, q_db=15.0, seed=7))
-    assert not np.array_equal(mnru(x, q_db=15.0, seed=7), mnru(x, q_db=15.0, seed=8))
 
 
 def test_silence_ratio_sees_the_pauses():

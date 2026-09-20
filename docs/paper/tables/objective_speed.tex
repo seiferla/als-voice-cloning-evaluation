@@ -1,0 +1,15 @@
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Model} & \textbf{Service RTF} $\downarrow$ & \textbf{TTFA (s)} $\downarrow$ & \textbf{End-to-end (s)} $\downarrow$ \\
+        \midrule
+        Qwen3 & 0.392 [0.377, 0.410] & 1.55 [1.49, 1.60] & 13.8 [8.9, 22.2] \\
+        Fish Speech S2 Pro & 0.227 [0.216, 0.249] & 1.21 [1.19, 1.23] & 7.8 [4.7, 13.2] \\
+        Voxtral Mistral & 0.143 [0.107, 0.158] & not recorded & 5.7 [3.3, 5.9] \\
+        \bottomrule
+    \end{tabular}
+    \caption{Response time of the three services, measured end-to-end over the internet and including network transfer. Median across texts with bootstrap 95\,\% confidence intervals. No first-chunk timestamp was logged for Voxtral in this run.}
+    \label{tab:objective_speed}
+\end{table}

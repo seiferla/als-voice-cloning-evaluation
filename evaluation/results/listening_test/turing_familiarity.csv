@@ -1,0 +1,4 @@
+model,difference,ci_low,ci_high,excludes_zero,n_knows,n_does_not
+qwen3,0.129,-0.1,0.333,False,15,14
+s2pro,0.11,-0.231,0.413,False,15,14
+voxtral,0.248,-0.083,0.597,False,15,14

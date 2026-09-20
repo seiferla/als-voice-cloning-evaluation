@@ -1,0 +1,10 @@
+group,model,fooling_rate,ci_low,ci_high,vs_chance,n_answers,n_raters,n_items
+all,qwen3,0.138,0.0,0.25,below chance,59,29,13
+all,s2pro,0.247,0.115,0.4,below chance,66,29,13
+all,voxtral,0.414,0.229,0.617,indistinguishable from chance,61,29,13
+knows_person,qwen3,0.2,0.0,0.375,below chance,30,15,11
+knows_person,s2pro,0.3,0.092,0.542,indistinguishable from chance,35,15,11
+knows_person,voxtral,0.533,0.273,0.8,indistinguishable from chance,32,15,11
+does_not_know_person,qwen3,0.071,0.0,0.167,below chance,29,14,13
+does_not_know_person,s2pro,0.19,0.0,0.429,below chance,31,14,13
+does_not_know_person,voxtral,0.286,0.042,0.5,indistinguishable from chance,29,14,13

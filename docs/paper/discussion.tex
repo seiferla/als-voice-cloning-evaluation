@@ -1,0 +1,61 @@
+% ---------------------------------------------------------------------------
+% \section*{Discussion}. About two thirds of a page including the figure.
+%
+% Figure from  python tools/make_paper_figures.py  (fig_sim_vs_nmos.pdf).
+% Numbers checked by tools/make_paper_tables.py.
+%
+% Process lessons (preprocessing, zero-shot) are in the Conclusion, not here.
+% ---------------------------------------------------------------------------
+
+\section*{Discussion}
+\label{discussion}
+
+The clearest result is a disagreement between the two kinds of measurement.
+Qwen3 is closest to the patient by speaker embedding, so close that ECAPA-TDNN
+cannot separate it from a second genuine recording, and it is the system raters
+find least natural and detect most reliably. Voxtral is the mirror image
+(Figure~\ref{fig:sim_vs_nmos}). Both perceptual measures agree with each other
+and contradict the objective one; a selection by speaker similarity alone would
+have picked the worst system for this purpose.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\linewidth]{fig_sim_vs_nmos.pdf}
+    \caption{Speaker similarity against naturalness. The system closest to the
+    patient by embedding is the one raters find least natural.}
+    \label{fig:sim_vs_nmos}
+\end{figure}
+
+The disagreement concerns similarity, not objective measurement as such.
+Response time cannot be obtained from listeners, and it is the practical
+constraint: every service renders faster than real time, yet median end-to-end
+latency ran from $5.7$ to $13.8$\,s per utterance because the texts are long. A
+conversational application would have to synthesise in shorter units.
+
+The clones do not pass as the patient. S2 Pro was identified in three of four
+pairs, the patient herself identified her voice in six of six. Legacy material
+yields a voice listeners accept as natural, not one that survives a direct
+comparison with her own; for an assistive device, which speaks for the patient
+rather than deceiving anyone, that is the relevant standard.
+
+The reversed familiarity effect cannot be interpreted. No unfamiliar rater was
+older than $42$, the familiar group has a median age of $51$, and an
+age-related loss of high-frequency hearing would blunt exactly the brightness
+cue that separates genuine from cloned excerpts; hearing was not screened.
+Beyond this, the study covers one speaker, the fooling rates are a lower bound
+because pause structure, brightness and duration remain usable cues, and the
+surviving texts are those Voxtral rendered, which flatters it.
+
+The same property that makes this result useful is also a risk. The material
+was not recorded for cloning; it is the kind of audio most people have sent to
+others. That it suffices for a voice which unfamiliar listeners mistake for the
+original in up to three of ten side-by-side comparisons means the barrier to
+voice fraud is no longer expertise or studio recordings but access to someone's
+messages, and a fraudulent call never has to survive a side-by-side. This is no
+reason to withhold the method from patients, but it is a reason to treat legacy
+audio as sensitive data.
+
+For the patient, the primary result stands: two of the three systems produced a
+voice that $30$ listeners rated as natural as her own recordings, from material
+never intended for this purpose. That the two can still be told apart in a
+direct comparison limits the clone as a replica, not as a voice.

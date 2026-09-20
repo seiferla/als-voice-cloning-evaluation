@@ -1,0 +1,59 @@
+% ---------------------------------------------------------------------------
+% Last subsection of \section*{Evaluation}, placed before the Discussion.
+% This is the only place where the recommendation is argued; the Discussion
+% interprets, the Conclusion refers back with one sentence.
+%
+% Needs \label{model_choice} on the "Model choice" subsection.
+%
+% The table is optional. Delete it if the manuscript runs over 9.5 pages;
+% the paragraphs carry the argument on their own.
+% ---------------------------------------------------------------------------
+
+\subsection{Model Selection}
+\label{model_selection}
+
+Section~\ref{model_choice} set four requirements: German synthesis, cloning from
+minimal data, low latency, and the option of self-hosting for privacy. The first
+three are met by all three candidates. Each renders German, each clones from a
+reference of a few seconds, and each returns audio faster than it is spoken
+(service RTF $0.14$ to $0.39$). The requirements narrow the field but do not
+decide between the candidates, which is what the evaluation is for.
+
+Two criteria separate them (Table~\ref{tab:model_selection}). Perception rules
+out Qwen3: despite the highest speaker similarity it is rated clearly less
+natural than every other condition and is detected most reliably in the Turing
+test. Licence and reliability rule out Voxtral, which matches S2 Pro
+perceptually but is non-commercial and left three of sixteen texts unusable; a
+system that fails on one text in five cannot replace a voice. S2 Pro is rated as
+natural as the genuine recordings, rendered every text, and runs at a service
+RTF of $0.23$. It is recommended not because it sounds better than Voxtral,
+which the data cannot show, but because it is the only candidate that meets
+every requirement at once.
+
+The fourth requirement is not settled here. All three systems were evaluated
+through their providers' APIs, so the enrolment recording left the local machine
+in every case. Whether S2 Pro can be operated on private infrastructure has to
+be established before deployment.
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+         & \textbf{Qwen3} & \textbf{S2 Pro} & \textbf{Voxtral} \\
+        \midrule
+        German, zero-shot cloning & yes     & yes                 & yes \\
+        Service RTF               & $0.39$  & $0.23$              & $0.14$ \\
+        \midrule
+        Naturalness vs.\ genuine  & below   & not distinguishable & not distinguishable \\
+        Fooling rate              & $0.14$  & $0.25$              & $0.41$ \\
+        Usable renders            & $16/16$ & $16/16$             & $13/16$ \\
+        Deployable licence        & yes     & yes                 & no \\
+        \bottomrule
+    \end{tabular}
+    \caption{Selection criteria. The rows above the rule are the requirements
+    from Section~\ref{model_choice} and are met by all candidates; the rows
+    below come from the evaluation and decide. S2 Pro is the only system that
+    passes every row.}
+    \label{tab:model_selection}
+\end{table}

@@ -1,26 +1,18 @@
-"""Evaluation metrics for voice cloning."""
+"""SIM, WER and ASR helpers."""
 
 import os
 import re
 
 import numpy as np
 
-# Whisper's word_timestamps path runs its DTW through numba with parallel=True,
-# which starts a second OpenMP runtime next to the one torch already loaded. On
-# macOS with a conda-based interpreter that combination aborts the process
-# (OMP Error #15) or segfaults mid-inference. Pinning numba to one thread keeps
-# the alignment on a single runtime; the DTW is a negligible share of the ASR
-# cost, so nothing measurable is lost. setdefault, so an explicit value wins.
-# Must run before torch/numba are imported, i.e. at import time of this module.
+# Whisper's word-timestamp DTW runs numba with a second OpenMP runtime next to
+# torch's, which aborts on macOS (OMP Error #15). One numba thread avoids it.
 os.environ.setdefault("NUMBA_NUM_THREADS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 _classifier = None
 _whisper_model = None
 
-# One place to change the ASR size. "small" is the current baseline; the EDA
-# notebook uses a German-finetuned large model, which is the better choice once
-# the WER numbers are re-run.
 WHISPER_MODEL = "small"
 
 
@@ -31,23 +23,11 @@ def similarity(ref_embedding, clone_embedding):
     return float(np.dot(ref, clone) / (np.linalg.norm(ref) * np.linalg.norm(clone)))
 
 
-# Punctuation that Whisper adds or omits freely - never a real recognition error.
-_PUNCT = str.maketrans({c: " " for c in ".,;:!?\u2026\"'\u201c\u201d\u201e\u2018\u2019()[]{}<>/\\|*_+=&%$#@~`\u2013\u2014"})
+_PUNCT = str.maketrans({c: " " for c in ".,;:!?…\"'“”„‘’()[]{}<>/\\|*_+=&%$#@~`–—"})
 
 
 def _spell_numbers_de(text):
-    """Replace digit groups with German number words.
-
-    "2021" -> "zweitausendeinundzwanzig", "3." -> "dritte". Whisper writes
-    numbers sometimes as digits, sometimes as words; applying the same
-    expansion to BOTH sides removes that source of fake errors.
-
-    Residual limitation: German ordinals inflect ("am dritten Mai"), while
-    num2words returns the base form ("dritte") - that leaves one substitution.
-    Best avoided by writing numbers as words in the test texts.
-
-    No-op if num2words is missing.
-    """
+    """Digits to German number words, on both sides of the WER ("2021", "3." -> ordinal)."""
     try:
         from num2words import num2words
     except ImportError:
@@ -61,25 +41,16 @@ def _spell_numbers_de(text):
         except Exception:
             return match.group(0)
 
-    # A dot directly after digits and followed by a space marks an ordinal
-    # ("am 3. Mai"); a dot at the end of a sentence does not.
     return re.sub(r"(\d+)(\.(?=\s))?", replace, text)
 
 
 def normalize_text(text):
-    """Normalize text for WER: casing, punctuation, umlauts, numbers, whitespace.
-
-    Without this, WER measures the ASR's formatting choices instead of the
-    TTS model's intelligibility.
-    """
+    """Lowercase, spell out numbers, transliterate umlauts, drop punctuation and hyphens."""
     text = text.lower()
     text = _spell_numbers_de(text)
-    # Umlauts and sharp s: transliterate on both sides so an ASR that writes
-    # "schoen" instead of "schön" does not count as a recognition error.
-    for src, dst in (("\u00df", "ss"), ("\u00e4", "ae"), ("\u00f6", "oe"), ("\u00fc", "ue")):
+    for src, dst in (("ß", "ss"), ("ä", "ae"), ("ö", "oe"), ("ü", "ue")):
         text = text.replace(src, dst)
     text = text.translate(_PUNCT)
-    # Hyphens join compounds; treat them as word boundaries on both sides.
     text = text.replace("-", " ")
     return " ".join(text.split())
 
@@ -96,16 +67,14 @@ def wer(reference_text, asr_output):
     if not reference:
         raise ValueError("Reference text is empty after normalization")
     if not hypothesis:
-        # jiwer would raise on an empty hypothesis; a silent clone is 100% error.
-        return 1.0
+        return 1.0  # jiwer raises on an empty hypothesis; a silent render is 100 % error
     return float(jiwer_wer(reference, hypothesis))
 
 
 def extract_embedding(audio_path):
-    """Speaker embedding (ECAPA-TDNN) for SIM comparison."""
+    """ECAPA-TDNN speaker embedding."""
     global _classifier
     try:
-
         import soundfile as sf
         import torch
         import torchaudio
@@ -116,10 +85,9 @@ def extract_embedding(audio_path):
     if _classifier is None:
         _classifier = EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb")
 
-    # soundfile instead of torchaudio.load(): recent torchaudio versions need
-    # torchcodec/FFmpeg just to read a file, which isn't installed here.
+    # soundfile instead of torchaudio.load(), which needs torchcodec/FFmpeg.
     data, sr = sf.read(str(audio_path), dtype="float32", always_2d=True)
-    signal = torch.from_numpy(data.T)  # (channels, samples)
+    signal = torch.from_numpy(data.T)
     if signal.shape[0] > 1:
         signal = signal.mean(dim=0, keepdim=True)
     if sr != 16000:
@@ -142,17 +110,12 @@ def _load_whisper():
 
 
 def transcribe(audio_path, language="de"):
-    """Transcribe audio with Whisper (produces the ASR output for wer())."""
     result = _load_whisper().transcribe(str(audio_path), language=language)
     return result["text"]
 
 
 def transcribe_words(audio_path, language="de"):
-    """Word-level timestamps: [{"word", "start", "end"}, ...].
-
-    Used to locate an excerpt inside a rendition (see excerpt.py) so stimuli
-    can be cut at word boundaries instead of at a fixed time offset.
-    """
+    """Word-level timestamps: [{"word", "start", "end"}, ...]."""
     result = _load_whisper().transcribe(
         str(audio_path), language=language, word_timestamps=True
     )

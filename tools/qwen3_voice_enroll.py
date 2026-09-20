@@ -12,8 +12,6 @@ Examples:
     uv run python tools/qwen3_voice_enroll.py delete --voice qwen-tts-vc-...
 """
 
-from __future__ import annotations
-
 import argparse
 import base64
 import json

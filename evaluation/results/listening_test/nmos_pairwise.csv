@@ -1,0 +1,7 @@
+condition_a,condition_b,difference,ci_low,ci_high,excludes_zero,ci_low_adj,ci_high_adj,excludes_zero_adj,n_comparisons
+qwen3,s2pro,-0.883,-1.165,-0.593,True,-1.241,-0.512,True,6
+qwen3,voxtral,-1.013,-1.374,-0.662,True,-1.507,-0.505,True,6
+qwen3,REAL,-1.115,-1.499,-0.681,True,-1.648,-0.505,True,6
+s2pro,voxtral,-0.131,-0.413,0.145,False,-0.513,0.244,False,6
+s2pro,REAL,-0.233,-0.618,0.187,False,-0.722,0.436,False,6
+voxtral,REAL,-0.102,-0.476,0.302,False,-0.573,0.479,False,6

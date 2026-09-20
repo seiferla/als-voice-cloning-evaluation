@@ -2,8 +2,29 @@
 data/
 images/
 models/output/
-evaluation/results/
 outputs/
+
+# Evaluation output. Audio, ASR alignments and rater-level answers stay out;
+# the aggregated summary tables are committed so every number in the report can
+# be checked without the recordings. ratings_long.csv is deliberately NOT among
+# them - it carries each rater's age and whether they know the speaker.
+evaluation/results/*
+!evaluation/results/objective_summary.csv
+!evaluation/results/objective_pairwise.csv
+!evaluation/results/render_reliability.csv
+!evaluation/results/listening_test/
+evaluation/results/listening_test/*
+!evaluation/results/listening_test/nmos_summary.csv
+!evaluation/results/listening_test/nmos_pairwise.csv
+!evaluation/results/listening_test/turing_summary.csv
+!evaluation/results/listening_test/turing_familiarity.csv
+!evaluation/results/listening_test/reliability.csv
+
+# Compiled manuscript draft (build artifact of the LaTeX sections)
+docs/paper_draft.pdf
+
+# Superseded drafts, kept on disk but out of the repository
+docs/archive/
 
 # Environment & Secrets
 .env

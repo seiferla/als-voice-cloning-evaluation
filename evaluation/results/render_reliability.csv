@@ -1,0 +1,7 @@
+model,n_texts,n_unusable,usable_rate,failed_text_id,reason
+REAL,16,0,1.0,,
+qwen3,16,0,1.0,,
+s2pro,16,0,1.0,,
+voxtral,16,3,0.812,AUDIO-2021-07-31-14-49-50,"no measurable pause floor - render has 0% silence, pause-floor matching cannot run"
+voxtral,16,3,0.812,AUDIO-2021-08-30-06-40-21,"no measurable pause floor - render has 0% silence, pause-floor matching cannot run"
+voxtral,16,3,0.812,AUDIO-2021-09-13-09-31-29,"no measurable pause floor - render has 0% silence, pause-floor matching cannot run"

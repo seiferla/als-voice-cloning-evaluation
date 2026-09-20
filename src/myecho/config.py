@@ -21,8 +21,6 @@ S2PRO_MODEL = "s2-pro"
 # "balanced" really streams the audio (several frames) -> TTFA is measurable.
 # "normal" returns everything in one frame, which makes TTFA == latency.
 S2PRO_LATENCY_MODE = os.getenv("S2PRO_LATENCY_MODE", "balanced")
-VOXTRAL_MODEL = "voxtral-mini-tts-2603"
-QWEN3_MODEL = "qwen-audio-3.0-tts-flash"
 
 # Realtime voice-clone model. A voice enrolled with this target_model can ONLY
 # be used over /api-ws/v1/realtime - not over the tts_v2 /api-ws/v1/inference path.

@@ -1,0 +1,25 @@
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{llcc}
+        \toprule
+        \textbf{Metric} & \textbf{Comparison} & \textbf{Difference} & \textbf{Adjusted 95\,\% CI} \\
+        \midrule
+        SIM & Qwen3 $-$ S2 Pro & $+0.056$ & $[+0.043, +0.070]$ \\
+         & Qwen3 $-$ Voxtral & $+0.141$ & $[+0.127, +0.152]$ \\
+         & Qwen3 $-$ Real & $-0.031$ & $[-0.068, +0.004]$ \\
+         & S2 Pro $-$ Voxtral & $+0.085$ & $[+0.068, +0.101]$ \\
+         & S2 Pro $-$ Real & $-0.087$ & $[-0.116, -0.056]$ \\
+         & Voxtral $-$ Real & $-0.174$ & $[-0.207, -0.140]$ \\
+        \midrule
+        WER & Qwen3 $-$ S2 Pro & $-0.029$ & $[-0.061, +0.001]$ \\
+         & Qwen3 $-$ Voxtral & $-0.052$ & $[-0.115, -0.007]$ \\
+         & Qwen3 $-$ Real & $-0.090$ & $[-0.131, -0.059]$ \\
+         & S2 Pro $-$ Voxtral & $-0.023$ & $[-0.078, +0.015]$ \\
+         & S2 Pro $-$ Real & $-0.060$ & $[-0.098, -0.031]$ \\
+         & Voxtral $-$ Real & $-0.036$ & $[-0.077, +0.034]$ \\
+        \bottomrule
+    \end{tabular}
+    \caption{Differences between conditions, computed per text and bootstrapped over texts. Intervals are Bonferroni-adjusted over the six comparisons of each metric. An interval containing zero indicates that the difference is not detectable on this material.}
+    \label{tab:objective_pairwise}
+\end{table}

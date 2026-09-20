@@ -1,0 +1,17 @@
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{Condition} & \textbf{SIM} $\uparrow$ & \textbf{WER} $\downarrow$ \\
+        \midrule
+        Qwen3 & 0.755 [0.738, 0.769] & 0.097 [0.075, 0.115] \\
+        Fish Speech S2 Pro & 0.703 [0.687, 0.713] & 0.119 [0.101, 0.142] \\
+        Voxtral Mistral & 0.609 [0.602, 0.627] & 0.116 [0.107, 0.141] \\
+        \midrule
+        Genuine recordings (reference) & 0.786 [0.760, 0.825] & 0.190 [0.147, 0.228] \\
+        \bottomrule
+    \end{tabular}
+    \caption{Speaker similarity and word error rate. Median across texts with bootstrap 95\,\% confidence intervals; $n = 16$ texts per system and $n = 15$ for the reference condition, which excludes the recording used for enrolment.}
+    \label{tab:objective_quality}
+\end{table}

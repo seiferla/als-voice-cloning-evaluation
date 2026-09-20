@@ -1,0 +1,17 @@
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Condition} & \textbf{SIM} $\uparrow$ & \textbf{WER} $\downarrow$ & \textbf{Service RTF} $\downarrow$ \\
+        \midrule
+        Qwen3 & 0.755 [0.738, 0.769] & 0.097 [0.075, 0.115] & 0.392 [0.377, 0.410] \\
+        S2 Pro & 0.703 [0.687, 0.713] & 0.119 [0.101, 0.142] & 0.227 [0.216, 0.249] \\
+        Voxtral & 0.609 [0.602, 0.627] & 0.116 [0.107, 0.141] & 0.143 [0.107, 0.158] \\
+        \midrule
+        Real & 0.786 [0.760, 0.825] & 0.190 [0.147, 0.228] & --- \\
+        \bottomrule
+    \end{tabular}
+    \caption{Objective results, reported as median [95\,\% CI] across texts; intervals from 4,000 bootstrap replicates over texts. $n = 16$ texts per system, $n = 15$ for the reference condition (Real), which excludes the recording used as the similarity reference. Service RTF applies to the three services only.}
+    \label{tab:objective_results}
+\end{table}

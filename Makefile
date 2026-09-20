@@ -7,7 +7,7 @@ CASE ?=
 SOURCE ?=
 REPEATS ?= 3
 
-.PHONY: help enrollment objective stimuli check sessions results long-form coverage test clean-test
+.PHONY: help enrollment objective stimuli check sessions results coverage report test clean-test
 
 help:
 	@echo "myEcho evaluation pipeline"
@@ -21,8 +21,8 @@ help:
 	@echo "  make clean-test                         archive this round and start the test over"
 	@echo
 	@echo "Supporting analyses (not part of the pipeline):"
-	@echo "  make long-form                          stability of the full renders"
 	@echo "  make coverage                           does the reported interval cover?"
+	@echo "  make report                             rebuild the report tables and figures"
 	@echo "  make test                               unit tests"
 	@echo
 	@echo "Only 'objective' calls the APIs. Everything else runs on its output."
@@ -57,11 +57,14 @@ results:
 	$(PY) evaluation/analyze_listening_test.py
 	$(PY) evaluation/analyze_objective.py
 
-long-form:
-	$(PY) evaluation/analyze_objective.py --long-form
-
 coverage:
 	$(PY) tools/check_ci_coverage.py
+
+# Rebuild the report tables and figures from the result CSVs, so no number in
+# the manuscript is hand-typed. Also re-checks the values quoted in the prose.
+report:
+	uv run --extra notebook python tools/make_paper_tables.py
+	uv run --extra notebook python tools/make_paper_figures.py
 
 test:
 	uv run --extra dev pytest -q
