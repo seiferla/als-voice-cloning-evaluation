@@ -1,11 +1,10 @@
-"""Tests for excerpt selection and location."""
+"""Excerpt selection and location."""
 
 import numpy as np
 import pytest
 
 from myecho.evaluation.excerpt import cut, locate_span, select_excerpt
 
-# Roughly the shape of the real material: spontaneous speech, short sentences.
 TEXT = (
     "Hi Lars, guten Morgen. Wollte mich mal melden. "
     "Ich hoffe bei euch ist alles gut. Das Wetter wird morgen noch trueb, "
@@ -27,8 +26,6 @@ def test_select_length_and_boundary():
 
 
 def test_select_skips_head():
-    # The opening of a voice memo is a greeting, and the first seconds of a
-    # render carry onset artifacts that differ per model.
     assert not select_excerpt(TEXT)["text"].startswith("Hi Lars")
 
 
@@ -53,15 +50,12 @@ def test_locate_span():
 
 
 def test_locate_span_fuzzy():
-    # The ASR of a synthesized file never reproduces the text exactly, so an
-    # exact search would fail on perfectly good audio.
     span = locate_span(_words("eins zwei dreu vier fuenf sechs"), "drei vier fuenf")
     assert span is not None
     assert 0.6 <= span["match_ratio"] < 1.0
 
 
 def test_locate_span_missing():
-    # A finding, not something to paper over with a time window.
     assert locate_span(_words("ganz andere worte hier"), "drei vier fuenf") is None
 
 
@@ -75,6 +69,5 @@ def test_cut_padding_and_fades():
     x = np.ones(5 * sr, dtype=np.float32)
     y = cut(x, sr, 1.0, 2.0, pad_before=0.2, pad_after=0.3, fade_s=0.02)
     assert len(y) == pytest.approx(1.5 * sr, abs=2)
-    # A hard cut clicks, and a click is heard - and rated - as an artifact.
     assert y[0] < 0.1 and y[-1] < 0.1
     assert y[len(y) // 2] == pytest.approx(1.0)

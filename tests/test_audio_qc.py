@@ -1,9 +1,4 @@
-"""Tests for level and pause-floor matching.
-
-These guard the two confounds the module exists to remove: a level difference
-between models, and a difference in the recording chain that only the real
-recordings went through.
-"""
+"""Level and pause-floor matching."""
 
 import numpy as np
 import pytest
@@ -22,7 +17,7 @@ SR = 24000
 
 
 def speech_with_pauses(sr=SR, level=0.1, floor=0.0, seconds=6.0, seed=0):
-    """Alternating 0.5 s of tone and 0.5 s of pause, plus an optional noise floor."""
+    """Alternating 0.5 s tone and 0.5 s pause, optional noise floor."""
     rng = np.random.default_rng(seed)
     n = int(seconds * sr)
     t = np.arange(n) / sr
@@ -42,8 +37,6 @@ def test_normalize_hits_target():
 
 
 def test_normalize_reports_clipping():
-    # A file that cannot reach the target without clipping must be reported,
-    # not silently rescued: it is still quieter than the others.
     x = speech_with_pauses(level=0.999)
     _, info = normalize(x, SR, target_lufs=0.0)
     assert not info["reached_target"]
@@ -51,7 +44,7 @@ def test_normalize_reports_clipping():
 
 
 def test_floor_matching_equalizes_snr():
-    quiet_pauses = speech_with_pauses(floor=1e-6)      # like a denoised recording
+    quiet_pauses = speech_with_pauses(floor=1e-6)
     noisy_pauses = speech_with_pauses(floor=1e-3, seed=1)
 
     a, _ = match_noise_floor(quiet_pauses, SR, target_snr_db=26.0)
@@ -61,15 +54,11 @@ def test_floor_matching_equalizes_snr():
         speech, pause = speech_and_pause_level(x, SR)
         return speech - pause
 
-    # Before: the two differ by a lot. After: they agree, which is the point -
-    # a rater must not be able to tell the sources apart by their gaps.
     assert snr(quiet_pauses) - snr(noisy_pauses) > 10
     assert abs(snr(a) - snr(b)) < 3
 
 
 def test_floor_above_target_unchanged():
-    # Lowering a floor would mean denoising one condition and not the others,
-    # which is exactly the confound this removes.
     noisy = speech_with_pauses(floor=1e-2)
     y, info = match_noise_floor(noisy, SR, target_snr_db=26.0)
     assert not info["raised"]
@@ -89,11 +78,7 @@ def test_floor_matching_keeps_speech_level():
     x = speech_with_pauses(floor=1e-6)
     y, _ = match_noise_floor(x, SR)
 
-    # Measured over the frames that were speech BEFORE the noise was added.
-    # Re-deriving the mask from y instead counts the now-filled pauses as
-    # speech and reports a ~10 dB drop that never happened to the speech - the
-    # earlier version of this test did exactly that and passed only because the
-    # added noise happened to land just under the old silence threshold.
+    # Mask from the clean signal; the noisy one would count filled pauses as speech.
     active = _frame_db(x, SR) > SILENCE_THRESHOLD_DBFS
     before, _ = speech_and_pause_level(x, SR, active=active)
     after, _ = speech_and_pause_level(y, SR, active=active)
@@ -101,9 +86,6 @@ def test_floor_matching_keeps_speech_level():
 
 
 def test_floor_fallback_flagged():
-    # No frame below the silence threshold means there is no pause floor to
-    # measure, and the percentile fallback returns speech dynamics instead. That
-    # must be visible, or a stimulus gets skipped on a number that is not an SNR.
     no_pauses = speech_with_pauses(floor=1e-2)
     _, info = match_noise_floor(no_pauses, SR, target_snr_db=26.0)
     assert info["pause_measured"] == "fallback"

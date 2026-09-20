@@ -1,8 +1,4 @@
-"""Tests for the listening-test design: rater plans, span rejection, scoring.
-
-The properties checked here are the ones that cannot be fixed after the first
-rater has answered.
-"""
+"""Rater plans, span rejection, scoring."""
 
 import pytest
 
@@ -16,8 +12,6 @@ TEXTS = [{"id": f"t{i}", "source_audio": f"t{i}.wav"} for i in range(9)]
 
 
 def test_plans_split_texts_between_parts():
-    # A rater who heard text T in part 1 already knows what the real voice
-    # sounds like on T, which is the answer to T's pair in part 2.
     for plan in P.build_plans(TEXTS, MODELS):
         turing_texts = {text_id for text_id, _ in plan["turing"]}
         assert not turing_texts & set(plan["nmos_texts"])
@@ -30,8 +24,6 @@ def test_plans_cover_every_text():
 
 
 def test_rotation_covers_all_cells():
-    # The old design assigned one model per text, so the Turing interval was
-    # over 5 items no matter how many people answered.
     cells = {(text_id, model)
              for plan in P.build_plans(TEXTS, MODELS)
              for text_id, model in plan["turing"]}
@@ -66,17 +58,15 @@ def test_unlocated():
     ("b", True, "A"),
 ])
 def test_real_side_displayed(real_side, swapped, expected):
-    # Getting this wrong inverts every Turing answer, which would look like a
-    # plausible result rather than like a bug.
     assert real_side_displayed({"real_side": real_side}, swapped) == expected
 
 
 def test_reject_runaway_spans():
     spans = {
         "m1/t0": {"duration": 9.0}, "m2/t0": {"duration": 10.0},
-        "m3/t0": {"duration": 44.0},          # words all there, 4x the time
+        "m3/t0": {"duration": 44.0},
         "m1/t1": {"duration": 30.0}, "m2/t1": {"duration": 31.0},
-        "m3/t1": {"duration": 32.0},          # a text that is long for everyone
+        "m3/t1": {"duration": 32.0},
     }
     kept, rejected = S.reject_runaway_spans(spans, max_ratio=2.0)
     assert [(s, t) for s, t, _ in rejected] == [("m3", "t0")]
