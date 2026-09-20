@@ -271,11 +271,17 @@ chance. The familiarity contrast is not separable from zero for any system
 speaker were fooled more often, not less.
 
 **Against the preregistration.** H1 (all systems below REAL on naturalness)
-holds only for qwen3. H2 (naturalness follows similarity: qwen3 ≥ s2pro >
-voxtral) is reversed: the system with the highest embedding similarity is rated
-least natural and detected most often, and the system with the lowest similarity
-is rated closest to the real voice. H3 (all detected above chance) fails for
-voxtral. H4 is not supported.
+holds numerically for all three (3.04 / 3.92 / 4.06 vs. 4.16) but is
+statistically confirmed only for qwen3; s2pro and voxtral are not separable
+from REAL. H2 (naturalness follows similarity: qwen3 ≥ s2pro > voxtral) is
+reversed: the system with the highest embedding similarity is rated least
+natural and detected most often, and the system with the lowest similarity is
+rated closest to the real voice. H3 (all detected above chance) fails for
+voxtral. H4 (familiarity increases detection) points the other way for all
+three systems — knowing the speaker raised the fooling rate rather than
+lowering it — but none of the three differences excludes zero (n = 15 vs. 14
+per system), so this is a direction worth a larger familiarity sample, not a
+confirmed effect.
 
 ## 9 Limitations
 

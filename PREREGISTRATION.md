@@ -70,5 +70,7 @@ qwen3 vs. s2pro WER difference not detectable. Final values: METHODS §2.
 
 ## Outcome
 
-Filled in after the study, see METHODS §8: H1 holds for qwen3 only, H2 is
-reversed, H3 fails for voxtral, H4 is not supported.
+Filled in after the study, see METHODS §8: H1 holds numerically for all three
+but is statistically confirmed only for qwen3; H2 is reversed; H3 fails for
+voxtral; H4 points the opposite way for all three systems but is not
+significant at this sample size.
