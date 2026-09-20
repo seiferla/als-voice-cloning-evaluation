@@ -15,7 +15,7 @@ MODELS = ["m1", "m2", "m3"]
 TEXTS = [{"id": f"t{i}", "source_audio": f"t{i}.wav"} for i in range(9)]
 
 
-def test_no_plan_uses_the_same_text_in_both_parts():
+def test_plans_split_texts_between_parts():
     # A rater who heard text T in part 1 already knows what the real voice
     # sounds like on T, which is the answer to T's pair in part 2.
     for plan in P.build_plans(TEXTS, MODELS):
@@ -23,13 +23,13 @@ def test_no_plan_uses_the_same_text_in_both_parts():
         assert not turing_texts & set(plan["nmos_texts"])
 
 
-def test_every_text_is_covered_by_exactly_one_role_per_plan():
+def test_plans_cover_every_text():
     for plan in P.build_plans(TEXTS, MODELS):
         covered = {t for t, _ in plan["turing"]} | set(plan["nmos_texts"])
         assert covered == {entry["id"] for entry in TEXTS}
 
 
-def test_the_rotation_pairs_every_model_with_every_text():
+def test_rotation_covers_all_cells():
     # The old design assigned one model per text, so the Turing interval was
     # over 5 items no matter how many people answered.
     cells = {(text_id, model)
@@ -38,7 +38,7 @@ def test_the_rotation_pairs_every_model_with_every_text():
     assert len(cells) == len(TEXTS) * len(MODELS)
 
 
-def test_each_model_appears_equally_often_across_plans():
+def test_rotation_balanced():
     counts = {model: 0 for model in MODELS}
     for plan in P.build_plans(TEXTS, MODELS):
         for _, model in plan["turing"]:
@@ -46,13 +46,13 @@ def test_each_model_appears_equally_often_across_plans():
     assert len(set(counts.values())) == 1
 
 
-def test_dropping_a_text_applies_to_every_model():
+def test_dropped_texts():
     excluded = {("m2", "t3"): "silence_heavy"}
     assert P.dropped_texts(excluded, keep_unbalanced=False) == {"t3"}
     assert P.dropped_texts(excluded, keep_unbalanced=True) == set()
 
 
-def test_unlocated_renditions_become_exclusions():
+def test_unlocated():
     spans = {f"{m}/t{i}": {} for m in MODELS for i in range(9)}
     del spans["m2/t4"]
     missing = P.unlocated(spans, MODELS, TEXTS)
@@ -65,13 +65,13 @@ def test_unlocated_renditions_become_exclusions():
     ("b", False, "B"),
     ("b", True, "A"),
 ])
-def test_the_per_rater_side_flip_is_undone_correctly(real_side, swapped, expected):
+def test_real_side_displayed(real_side, swapped, expected):
     # Getting this wrong inverts every Turing answer, which would look like a
     # plausible result rather than like a bug.
     assert real_side_displayed({"real_side": real_side}, swapped) == expected
 
 
-def test_a_runaway_span_is_rejected_against_the_per_text_median():
+def test_reject_runaway_spans():
     spans = {
         "m1/t0": {"duration": 9.0}, "m2/t0": {"duration": 10.0},
         "m3/t0": {"duration": 44.0},          # words all there, 4x the time

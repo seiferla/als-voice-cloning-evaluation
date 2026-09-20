@@ -34,14 +34,14 @@ def speech_with_pauses(sr=SR, level=0.1, floor=0.0, seconds=6.0, seed=0):
     return x.astype(np.float32)
 
 
-def test_normalize_reaches_the_target_loudness():
+def test_normalize_hits_target():
     x = speech_with_pauses(level=0.01)
     y, info = normalize(x, SR)
     assert info["reached_target"]
     assert measure(y, SR)["lufs"] == pytest.approx(TARGET_LUFS, abs=0.5)
 
 
-def test_normalize_refuses_to_clip_and_says_so():
+def test_normalize_reports_clipping():
     # A file that cannot reach the target without clipping must be reported,
     # not silently rescued: it is still quieter than the others.
     x = speech_with_pauses(level=0.999)
@@ -50,7 +50,7 @@ def test_normalize_refuses_to_clip_and_says_so():
     assert "would clip" in info["reason"]
 
 
-def test_pause_floor_is_raised_to_the_common_target():
+def test_floor_matching_equalizes_snr():
     quiet_pauses = speech_with_pauses(floor=1e-6)      # like a denoised recording
     noisy_pauses = speech_with_pauses(floor=1e-3, seed=1)
 
@@ -67,7 +67,7 @@ def test_pause_floor_is_raised_to_the_common_target():
     assert abs(snr(a) - snr(b)) < 3
 
 
-def test_a_floor_already_above_target_is_left_alone():
+def test_floor_above_target_unchanged():
     # Lowering a floor would mean denoising one condition and not the others,
     # which is exactly the confound this removes.
     noisy = speech_with_pauses(floor=1e-2)
@@ -76,7 +76,7 @@ def test_a_floor_already_above_target_is_left_alone():
     assert np.array_equal(y, noisy)
 
 
-def test_noise_matching_is_deterministic_for_a_given_seed():
+def test_floor_matching_deterministic():
     x = speech_with_pauses(floor=1e-6)
     a, _ = match_noise_floor(x, SR, seed=42)
     b, _ = match_noise_floor(x, SR, seed=42)
@@ -85,7 +85,7 @@ def test_noise_matching_is_deterministic_for_a_given_seed():
     assert not np.array_equal(a, c)
 
 
-def test_noise_matching_does_not_move_the_speech_level():
+def test_floor_matching_keeps_speech_level():
     x = speech_with_pauses(floor=1e-6)
     y, _ = match_noise_floor(x, SR)
 
@@ -100,7 +100,7 @@ def test_noise_matching_does_not_move_the_speech_level():
     assert after == pytest.approx(before, abs=0.5)
 
 
-def test_pause_floor_that_cannot_be_measured_is_reported_as_such():
+def test_floor_fallback_flagged():
     # No frame below the silence threshold means there is no pause floor to
     # measure, and the percentile fallback returns speech dynamics instead. That
     # must be visible, or a stimulus gets skipped on a number that is not an SNR.
@@ -110,6 +110,6 @@ def test_pause_floor_that_cannot_be_measured_is_reported_as_such():
     assert not info["raised"]
 
 
-def test_silence_ratio_sees_the_pauses():
+def test_silence_ratio():
     m = measure(speech_with_pauses(floor=0.0), SR)
     assert 0.4 < m["silence_ratio"] < 0.6

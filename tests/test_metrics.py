@@ -17,30 +17,30 @@ from myecho.evaluation.metrics import normalize_text, wer
     ("Hallo   Welt", "hallo welt"),                      # whitespace
     ("Er sagt: „ja“", "er sagt ja"),           # German quotes
 ])
-def test_normalization_makes_equivalent_texts_equal(a, b):
+def test_normalize_text(a, b):
     assert normalize_text(a) == normalize_text(b)
 
 
-def test_numbers_are_spelled_out_on_both_sides():
+def test_normalize_numbers():
     # Whisper writes numbers as digits or as words, unpredictably. The same
     # expansion on both sides is what keeps that from counting as an error.
     assert normalize_text("2021") == normalize_text("zweitausendeinundzwanzig")
 
 
-def test_wer_is_zero_for_an_equivalent_transcript():
+def test_wer_zero():
     assert wer("Hallo, Welt!", "hallo welt") == 0.0
 
 
-def test_wer_counts_a_real_substitution():
+def test_wer_substitution():
     assert wer("hallo welt", "hallo wald") == pytest.approx(0.5)
 
 
-def test_empty_hypothesis_is_a_total_error_not_a_crash():
+def test_wer_empty_hypothesis():
     # A silent render must score 1.0. jiwer itself raises on an empty
     # hypothesis, which would abort a whole evaluation run.
     assert wer("hallo welt", "") == 1.0
 
 
-def test_empty_reference_is_a_configuration_error():
+def test_wer_empty_reference():
     with pytest.raises(ValueError):
         wer("...", "hallo")
