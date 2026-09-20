@@ -2,16 +2,6 @@
 
 Usage:
     uv run python evaluation/select_excerpts.py
-
-The cut itself happens in prepare_listening_test.py. Output is excerpts.json,
-with the ASR pass cached in alignments/ so re-runs are instant.
-
-Two findings are reported and excluded rather than worked around: a rendition
-where too little of the excerpt is found did not say it, and one where the words
-are all there but stretched over more than twice the per-text median span is a
-runaway render.
-
-Why excerpts and how the length is derived: docs/METHODS.md section 3.
 """
 
 import json
@@ -35,10 +25,7 @@ from myecho.evaluation.excerpt import (  # noqa: E402
 )
 from myecho.evaluation.metrics import WHISPER_MODEL, transcribe_words  # noqa: E402
 
-# A located span far longer than the same excerpt in the other renditions is a
-# runaway render, not a slow speaker: the words are all there but stretched
-# over several times the time. Cutting it would put a 44 s stimulus into a test
-# built to keep stimuli near 10 s, which defeats the whole point.
+# A span far longer than the other renditions is a runaway render.
 MAX_SPAN_RATIO = 2.0
 
 TESTSET_PATH = Path(__file__).parent / "testset.json"
@@ -63,7 +50,8 @@ def load_case(case_name=None):
 
 def load_texts(case):
     """Full text entries: the excerpt is chosen on "text", so it is needed here
-    (unlike in qc_samples.py / prepare_listening_test.py, which only need ids)."""
+    (unlike in qc_samples.py / prepare_listening_test.py, which only need ids).
+    """
     with open(Path(case["texts_file"]), encoding="utf-8") as f:
         data = json.load(f)
     return [{"id": t.get("id", str(i)), "text": t["text"],
@@ -93,11 +81,7 @@ def candidates(case_dir, texts):
 
 
 def aligned_words(source, text_id, audio_path):
-    """Word timestamps for one file, cached on disk.
-
-    The ASR pass is the expensive part (minutes per file on CPU), and nothing
-    about a finished render changes, so it is written once and reused.
-    """
+    """Word timestamps for one file, cached on disk."""
     cache = ALIGN_DIR / source / f"{text_id}.json"
     if cache.exists():
         with open(cache, encoding="utf-8") as f:
@@ -111,24 +95,7 @@ def aligned_words(source, text_id, audio_path):
 
 
 def reject_runaway_spans(spans, max_ratio=MAX_SPAN_RATIO):
-    """Drop spans far longer than the same excerpt in the other renditions.
-
-    locate_span only asks whether the words are there, not how long the model
-    took to say them. A rendition that says the right words over 4x the time
-    passes the match check and would then become a 44 s stimulus in a test
-    designed around 10 s ones - and `voxtral/AUDIO-2021-07-30-06-44-26` in this
-    material does exactly that. Compared against the per-text median across
-    renditions, so a text that is simply long for everyone is not penalized.
-
-    The median is taken over the MODEL renditions only. The speaker is slower
-    than every model on this material (2.53 vs 2.7-3.0 words/s), so including
-    her recording raises the median and widens the limit for the models: the
-    21.1 s voxtral span passed at 1.91x of the four-way median where it is
-    2.08x of the model-only one. qc_samples.py already excludes REAL from its
-    per-text medians for the same reason.
-
-    Returns (kept, rejected) where rejected is [(source, text_id, reason), ...].
-    """
+    """Drop spans far longer than the same excerpt in the other renditions."""
     by_text = {}
     for key, span in spans.items():
         source, text_id = key.split("/", 1)
@@ -140,8 +107,7 @@ def reject_runaway_spans(spans, max_ratio=MAX_SPAN_RATIO):
     for key, span in spans.items():
         source, text_id = key.split("/", 1)
         if source == REAL or text_id not in by_text:
-            # REAL is the yardstick, not a candidate for rejection - and with no
-            # model rendition to compare against there is nothing to judge.
+            # REAL is the yardstick, not a candidate for rejection.
             kept[key] = span
             continue
         limit = median(by_text[text_id]) * max_ratio

@@ -2,16 +2,6 @@
 
 Usage:
     uv run python tools/check_ci_coverage.py
-
-analyze_listening_test.py reports intervals from a two-way cluster bootstrap.
-With only ~13 texts that is not self-evidently correct: cluster methods can
-under-cover when there are few clusters, and an interval that is too narrow
-turns noise into a claim.
-
-This simulates the design that was actually built, draws data from a known
-model, and counts how often the nominal 95 % interval contains the true value.
-It also reports the smallest difference the design can detect. Nothing here
-touches the collected ratings.
 """
 
 import argparse
@@ -20,14 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-# This script lives in tools/, the built test lives under evaluation/. Resolving
-# against __file__.parent pointed at tools/results/, which never exists, so the
-# nominal-design fallback below ran every time and silently reported numbers for
-# a design that was not the one built.
+# Resolve against the repo root; the built test lives under evaluation/.
 OUT_DIR = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "listening_test"
 
-# Variance components, in MOS points. Defaults are deliberately pessimistic
-# rather than fitted: this is a design check, run before any data exists.
+# Variance components in MOS points, deliberately pessimistic.
 SD_RATER = 0.35     # how much a rater's whole scale is shifted
 SD_TEXT = 0.30      # how much a sentence is easier or harder for everyone
 SD_NOISE = 0.70     # single-answer noise (matches typical MOS test-retest)
@@ -51,10 +37,7 @@ def design_from_key():
 
 
 def simulate(n_texts, plans, n_raters, effect, n_boot, rng, kind):
-    """One study. Returns (covered, width, detected) for a two-condition contrast.
-
-    effect is the true difference between the two conditions, in MOS points.
-    """
+    """One study. Returns (covered, width, detected) for a two-condition contrast."""
     rater_effect = rng.normal(0, SD_RATER, n_raters)
     text_effect = rng.normal(0, SD_TEXT, n_texts)
     plan_of = rng.integers(0, len(plans), n_raters)

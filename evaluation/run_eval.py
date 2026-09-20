@@ -3,24 +3,6 @@ WER and latency, and scores the anchors those numbers need to be readable.
 
 Usage:
     uv run python evaluation/run_eval.py --repeats 3
-
-Fill in evaluation/testset.json first. Voice IDs come from .env
-(S2PRO_REFERENCE_ID, VOXTRAL_VOICE_ID, QWEN3_VOICE_ID) and can be overridden per
-case. A model without a voice ID is skipped.
-
-Two extra conditions go into the same table, because a bare SIM or WER value has
-no scale (docs/METHODS.md section 2):
-
-    REAL      the speaker's own other recordings - the SIM upper bound and the
-              WER floor
-    IMPOSTOR  a different speaker, optional via "impostor_audio" - the SIM lower
-              bound
-
---repeats controls renders per text. These APIs sample, so with one render the
-model's own variance is invisible. The default is 1 so an exploratory run does
-not triple the API bill; 3 is the setting to report.
-
-Output: results_<timestamp>.csv, results_latest.csv, eval_run_meta.json.
 """
 
 import argparse
@@ -61,11 +43,7 @@ IMPOSTOR = "IMPOSTOR"
 
 CSV_FIELDS = [
     "case", "model", "text_id", "repeat", "sim", "wer",
-    # Renamed from "rtf": this is wall-clock API latency divided by the length of
-    # the audio it returned, measured over the internet against three different
-    # services (one of them non-streaming, one hosted in Singapore). Real RTF is
-    # compute time over audio duration on known hardware, which is not what any
-    # of these APIs let you observe.
+    # API latency divided by returned audio length, not compute RTF.
     "latency_s", "ttfa_s", "service_rtf", "audio_duration_s", "connect_s",
     "note", "audio_file",
 ]
@@ -121,8 +99,7 @@ def build_models(case):
 
     voxtral_id = case.get("voxtral_voice_id") or VOXTRAL_VOICE_ID
     if is_configured(voxtral_id):
-        # Reuse the existing voice instead of calling create_voice() per run -
-        # a fresh clone every run would make SIM values non-reproducible.
+        # Reuse the existing voice instead of calling create_voice() per run 
         models.append(("voxtral", VoxtralTTS(voice_id=voxtral_id)))
     else:
         print("  skip voxtral: no voice_id (VOXTRAL_VOICE_ID or case override)")
@@ -138,7 +115,8 @@ def build_models(case):
 
 def rel(path):
     """Repo-relative path, so a results CSV can be attached to a report without
-    leaking the absolute path of somebody's home directory."""
+    leaking the absolute path of somebody's home directory.
+    """
     try:
         return str(Path(path).resolve().relative_to(REPO_ROOT))
     except ValueError:
@@ -192,14 +170,7 @@ async def run_model(name, model, texts, ref_embedding, out_dir, repeats):
 
 
 def run_anchors(texts, meta, reference_audio, ref_embedding, impostor_paths):
-    """The REAL and IMPOSTOR rows: the same metrics on non-synthesized audio.
-
-    REAL is the speaker's own recording of each text. Two of them are special
-    and get flagged rather than dropped, because both are still informative:
-    the recording the voices were cloned from is not held out, and the recording
-    used as the SIM reference would score 1.0 against itself, so that one is
-    skipped entirely.
-    """
+    """The REAL and IMPOSTOR rows: the same metrics on non-synthesized audio."""
     rows = []
     reference_name = Path(reference_audio).name
     clone_source = meta.get("cloning_source_audio")
@@ -311,14 +282,7 @@ def git_commit():
 
 
 def summarize(all_rows):
-    """Median and IQR per case/model, not the mean.
-
-    A single runaway or truncated render moves a mean of 16 items a long way -
-    voxtral's WER standard deviation on this material is larger than its mean,
-    which means one or two total failures rather than uniformly worse output.
-    The median says what the model usually does; the IQR says how consistent it
-    is; the failures are visible as rows in the CSV.
-    """
+    """Median and IQR per case/model, not the mean."""
     print("\n=== Summary (median [IQR] per case/model) ===")
     for case_name, model_name in sorted({(r["case"], r["model"]) for r in all_rows}):
         rows = [r for r in all_rows if r["case"] == case_name and r["model"] == model_name]

@@ -2,17 +2,6 @@
 
 Usage:
     uv run python evaluation/check_listening_test.py
-
-Two parts:
-
-1. Invariants - properties the stimulus set must have. Exits non-zero if any
-   fails, so it can gate a script. None of them can be repaired once ratings
-   have been collected.
-2. Cue audit - can a single low-level measurement tell the real recordings from
-   the clones? A cue near the guessing baseline is gone; a cue clearly above it
-   has to be mitigated or reported with the results.
-
-Reasoning and measured numbers: docs/METHODS.md section 5.
 """
 
 import csv
@@ -41,8 +30,7 @@ AUDIT_CSV = OUT_DIR / "cue_audit.csv"
 LOUDNESS_TOLERANCE_LU = 1.0
 PAUSE_SNR_TOLERANCE_DB = 4.0
 
-# Words that must never reach a rater. "real"/"clone"/"fake" are checked as whole
-# words so an unrelated substring in the page text cannot trip the check.
+# Words that must never reach a rater, matched as whole words.
 ROLE_WORDS = ("real", "clone", "fake", "echt", "synth")
 
 
@@ -85,11 +73,7 @@ def features(path):
 
 
 def best_threshold_accuracy(values, is_real):
-    """Accuracy of the best single threshold, and its direction.
-
-    Both directions are tried, so the number answers "could one number
-    separate these at all", not "does a high value mean real".
-    """
+    """Accuracy of the best single threshold, and its direction."""
     values = np.asarray(values, dtype=float)
     is_real = np.asarray(is_real, dtype=int)
     usable = np.isfinite(values)
@@ -106,15 +90,7 @@ def best_threshold_accuracy(values, is_real):
 
 
 def paired_cue_accuracy(feature_by_stimulus, pairs):
-    """Accuracy of "the larger (or smaller) of the two is the real one".
-
-    This is the audit that matches the task. best_threshold_accuracy() above
-    classifies each stimulus on its own against a 0.75 base rate (3 clones per
-    real), but a rater in the 2AFC hears the real and one clone of the SAME
-    passage side by side and picks one - so chance is 0.50, and the only thing
-    that matters is which of the two is larger. No threshold is fitted, just a
-    direction, so there is nothing to overfit.
-    """
+    """Accuracy of "the larger (or smaller) of the two is the real one"."""
     wins = 0
     total = 0
     for pair in pairs.values():
@@ -133,11 +109,7 @@ def paired_cue_accuracy(feature_by_stimulus, pairs):
 
 
 def run_cue_audit(key):
-    """Report whether one low-level measurement separates real from clone.
-
-    A lower bound on what a listener could exploit - one threshold on one feature
-    is a weak attacker - but enough to catch a cue that dominates the test.
-    """
+    """Report whether one low-level measurement separates real from clone."""
     real_condition = key.get("real_condition", "REAL")
     rows = []
     for stimulus_id, info in sorted(key["stimuli"].items()):
@@ -168,9 +140,7 @@ def run_cue_audit(key):
         accuracy, _ = best_threshold_accuracy([r[name] for r in rows], is_real)
         paired, direction = paired_cue_accuracy(
             {sid: row[name] for sid, row in by_id.items()}, pairs)
-        # Judged on the paired number: it is the strategy actually available to
-        # a rater, and its chance level is not affected by how many clones there
-        # are per real recording.
+        # Judged on the paired number: that is the strategy a rater actually has.
         margin = (paired - 0.5) if np.isfinite(paired) else 0.0
         verdict = ("no usable cue" if margin <= 0.05 else
                    "weak residual cue" if margin <= 0.15 else
@@ -200,9 +170,7 @@ def manifest_from(html):
 
 
 def check_blinding(report, key, html, samples, share):
-    # "training" is deliberately visible - the page labels those items as
-    # practice, so the rater already knows. The secrets are the condition of a
-    # stimulus and which text it is.
+    # "training" is visible on purpose; the secrets are condition and text id.
     secrets = set(key["conditions"])
     secrets |= {info["text_id"] for info in key["stimuli"].values()}
     secrets |= {info["role"] for info in key["stimuli"].values()} - {"training"}
@@ -234,8 +202,7 @@ def check_design(report, key, manifest):
     stimuli, pairs = key["stimuli"], key["pairs"]
     real = key.get("real_condition", "REAL")
     anchor = key.get("anchor_condition")
-    # The anchor is rated but never paired, so it is not a model: counting it as
-    # one would make the coverage check expect pairs that must not exist.
+    # The anchor is rated but never paired, so it is not a model here.
     models = [c for c in key["conditions"] if c not in (real, anchor)]
 
     overlaps = []
@@ -272,11 +239,7 @@ def check_design(report, key, manifest):
                  "balance: each model appears equally often across plans",
                  dict(plan_models))
 
-    # The manifest ships in index.html, so an order that correlates with
-    # condition de-blinds the whole test without anyone touching key.json -
-    # and a check that only greps for condition NAMES cannot see it. The
-    # builder emits one block per text, so the natural bug is a fixed cycle:
-    # every position p has condition p % len(conditions).
+    # A positional pattern (position i = condition i % n) would de-blind the test.
     n_cond = len(key["conditions"])
     positional = []
     for plan in manifest["plans"]:
@@ -332,10 +295,7 @@ def measured_lufs(stimulus_id):
 def check_levels(report, key, target_lufs, target_pause_snr):
     achieved = [(sid, info["levels"]) for sid, info in key["stimuli"].items()]
 
-    # Measured from the written files, not read back from the key. The key's
-    # achieved_lufs is the arithmetic prediction before_lufs + gain_db, and the
-    # pause floor is added afterwards - checking it against itself would pass
-    # even if nothing had reached the disk correctly.
+    # Measured from the written files, not from the key's predicted values.
     off_level = []
     for sid, _ in achieved:
         value = measured_lufs(sid)
@@ -346,10 +306,7 @@ def check_levels(report, key, target_lufs, target_pause_snr):
                  f"{off_level[:3]}" if off_level
                  else f"{len(achieved)} files measured")
 
-    # A pause floor that could not be measured at all is not "already fine":
-    # speech_and_pause_level() falls back to a percentile of the speech frames,
-    # so the reported SNR is speech dynamics and the matching is skipped on a
-    # number that means nothing. Those stimuli keep an unmatched floor.
+    # A pause floor that could not be measured at all is not "already fine"
     unmeasured = [(sid, lv.get("n_silent_frames")) for sid, lv in achieved
                   if lv.get("pause_measured") == "fallback"]
     report.check(not unmeasured,
@@ -360,9 +317,7 @@ def check_levels(report, key, target_lufs, target_pause_snr):
     snrs = [(sid, lv["pause_snr_after_db"]) for sid, lv in achieved
             if lv.get("pause_snr_after_db") is not None]
 
-    # CLEANER pauses than the target means the matching did not do its job, and
-    # a stimulus with unnaturally silent gaps is exactly the cue that made the
-    # first version of this test winnable without listening to a voice.
+    # Cleaner pauses than the target mean the floor matching failed.
     too_clean = [(sid, round(v, 1)) for sid, v in snrs
                  if v > target_pause_snr + PAUSE_SNR_TOLERANCE_DB]
     noisier = [(sid, round(v, 1)) for sid, v in snrs
@@ -375,13 +330,7 @@ def check_levels(report, key, target_lufs, target_pause_snr):
                  f"unmatched: {too_clean[:3]}" if too_clean
                  else f"spread {spread:.1f} dB across {len(snrs)} stimuli")
 
-    # Noisier than the target used to be waved through as "a property of that
-    # render". That is only half true. Adding noise to a floor is refused on
-    # purpose (lowering one would mean denoising one condition and not the
-    # others), but the CONSEQUENCE is still a cue: with the real side sitting at
-    # the target and one condition far below it, "the cleaner one is real" wins
-    # inside exactly those pairs. So the spread is reported as a finding to
-    # carry into the results, not as an expected note.
+    # Noisier than the target is still a cue, even though lifting a floor is refused.
     report.check(spread <= 2 * PAUSE_SNR_TOLERANCE_DB,
                  f"levels: pause floors sit within {2 * PAUSE_SNR_TOLERANCE_DB:.0f} dB "
                  f"of each other",
@@ -404,11 +353,7 @@ def measured_peak_clip(stimulus_id):
 
 
 def check_clipping(report, key, peak_ceiling_dbfs):
-    # Measured on the written files: normalize() respects the ceiling, but
-    # match_noise_floor() adds noise to the WHOLE signal afterwards, which can
-    # push a speech peak that was already close to the ceiling over it, and PCM_16
-    # writing then clips it. Neither step re-checks the peak, so only the file on
-    # disk can tell.
+    # Added floor noise can push a peak over the ceiling; check the written file.
     stats = {sid: measured_peak_clip(sid) for sid in key["stimuli"]}
     measured = {sid: v for sid, v in stats.items() if v[0] is not None}
 

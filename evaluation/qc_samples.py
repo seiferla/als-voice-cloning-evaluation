@@ -2,21 +2,6 @@
 
 Usage:
     uv run python evaluation/qc_samples.py
-
-Writes qc_report.csv (duration, BS.1770 loudness, peak, silence ratio, clipping,
-plus flags) and, on the first run, an exclusions.json template.
-
-Auto-flagged, each checkable without listening:
-    quiet          cannot reach target loudness without clipping
-    silence_heavy  much more silence than the same text from other models
-    duration_off   much shorter or longer than the same text from other models
-    clipping       already clipped in the source
-    near_silent    essentially no speech
-
-Only quiet, near_silent and clipping are pre-filled for exclusion. The other two
-usually mean the model speaks slower or pauses more, which raters should judge.
-Flags are a shortlist to listen to, not a verdict - edit exclusions.json
-yourself. Exclusion criteria are fixed in advance in PREREGISTRATION.md.
 """
 
 import csv
@@ -43,16 +28,12 @@ EXCLUSIONS_PATH = RESULTS_DIR / "exclusions.json"
 
 AUDIO_EXT = "wav"
 
-# A stimulus is flagged when it deviates this far from the median of the same
-# text rendered by the other models.
+# Flag a stimulus this far from the per-text median of the other models.
 SILENCE_EXCESS = 0.20      # +20 percentage points of silence
 DURATION_RATIO = 0.30      # +/-30 % duration
 NEAR_SILENT_RATIO = 0.95   # 95 % silence = nothing to rate
 
 # Only these mean "technically unusable" and get pre-filled into exclusions.json.
-# duration_off / silence_heavy on their own usually mean the model just speaks
-# slower or pauses more - a real property of the voice, which the raters should
-# hear and judge, not something to quietly remove.
 HARD_FLAGS = {"quiet", "near_silent", "clipping"}
 
 CSV_FIELDS = [
@@ -123,8 +104,7 @@ def main():
             "flags": [],
         })
 
-    # Per-text medians across the model renders (the real recording is a
-    # different kind of signal, so it doesn't set the reference).
+    # Per-text medians across the model renders; REAL does not set the reference.
     by_text = {}
     for r in rows:
         if r["source"] != "REAL":

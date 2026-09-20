@@ -2,20 +2,6 @@
 
 Usage:
     uv run python evaluation/analyze_listening_test.py
-
-Reads key.json plus every rating in responses/, then writes nmos_summary.csv,
-nmos_pairwise.csv, turing_summary.csv, turing_familiarity.csv, reliability.csv
-and ratings_long.csv.
-
-Intervals come from a two-way cluster bootstrap over raters and texts. The
-answers are not independent - each rater answers many items and each item is
-answered by many raters - so pooling them as independent observations gives
-intervals that are too narrow. Coverage was checked by simulation on this design
-(tools/check_ci_coverage.py): 0.99 against a nominal 0.95, i.e. conservative.
-
-Pairwise comparisons are paired within rater and their verdict is
-Bonferroni-adjusted. If statsmodels is installed, a mixed model is also fitted as
-a confirmatory check. See docs/METHODS.md section 7.
 """
 
 import csv
@@ -29,10 +15,7 @@ OUT_DIR = Path(__file__).parent / "results" / "listening_test"
 KEY_PATH = OUT_DIR / "key.json"
 RESPONSES_DIR = OUT_DIR / "responses"
 
-# Below this many raters the bootstrap cannot estimate between-rater variance:
-# resampling raters with replacement from a set of one always returns that one
-# rater, so the interval is really only over texts and says nothing about
-# whether another person would agree. Verdicts are suppressed below it.
+# Below this many raters the bootstrap cannot estimate between-rater variance
 MIN_RATERS_FOR_VERDICTS = 5
 
 N_BOOTSTRAP = 2000
@@ -41,8 +24,6 @@ CI = 0.95
 
 
 # --------------------------------------------------------------------------- #
-# loading
-# --------------------------------------------------------------------------- #
 
 def load_key():
     with open(KEY_PATH, encoding="utf-8") as f:
@@ -50,13 +31,7 @@ def load_key():
 
 
 def load_responses():
-    """Every rating, deduplicated.
-
-    The server appends to all_ratings.jsonl while remote raters send back a
-    ratings_*.json that gets dropped into the same folder, so the same session
-    can legitimately arrive twice. Dedup on (rater, timestamp): a rater id is
-    generated per page load, so the pair identifies one submitted session.
-    """
+    """Every rating, deduplicated."""
     raw = []
     for path in sorted(RESPONSES_DIR.glob("*.json")):
         with open(path, encoding="utf-8") as f:
@@ -68,10 +43,7 @@ def load_responses():
             for lineno, line in enumerate(f, start=1):
                 if not line.strip():
                     continue
-                # A rare server-side write race can interleave two concurrent
-                # submissions onto one line with no newline between them.
-                # Decode every JSON object present rather than losing (or
-                # crashing on) the whole line.
+                # Two concurrent submissions can land on one line; decode every JSON object in it.
                 decoder = json.JSONDecoder()
                 text, pos = line, 0
                 while pos < len(text) and text[pos:].strip():
@@ -109,15 +81,9 @@ def load_responses():
 
 
 # --------------------------------------------------------------------------- #
-# long tables
-# --------------------------------------------------------------------------- #
 
 def real_side_displayed(pair, swapped):
-    """Which slot (A/B) the rater actually saw the real recording in.
-
-    key.json stores the unswapped baseline; the page flips the two slots per
-    rater and records that it did.
-    """
+    """Which slot (A/B) the rater actually saw the real recording in."""
     return "A" if (pair["real_side"] == "a") != bool(swapped) else "B"
 
 
@@ -174,8 +140,6 @@ def turing_rows(key, responses):
 
 
 # --------------------------------------------------------------------------- #
-# two-way cluster bootstrap
-# --------------------------------------------------------------------------- #
 
 def _percentile(values, q):
     if not values:
@@ -186,14 +150,7 @@ def _percentile(values, q):
 
 
 def cluster_bootstrap(rows, statistic, n=N_BOOTSTRAP, seed=BOOTSTRAP_SEED, ci=CI):
-    """CI for `statistic(rows)` under resampling of raters AND texts.
-
-    Rows are indexed by both cluster variables. Each replicate draws a
-    multiset of raters and a multiset of texts and keeps the rows whose rater
-    and text were both drawn, with the multiplicity of both - the standard
-    two-way cluster bootstrap. Wider than a one-way interval, and it should be:
-    the study generalizes over people and over sentences at the same time.
-    """
+    """CI for `statistic(rows)` under resampling of raters AND texts."""
     if not rows:
         return float("nan"), float("nan")
 
@@ -221,12 +178,7 @@ def cluster_bootstrap(rows, statistic, n=N_BOOTSTRAP, seed=BOOTSTRAP_SEED, ci=CI
 
 
 def mean_rating(rows):
-    """Mean naturalness, averaged per rater first.
-
-    Raters differ in how much material they see (the plans differ in size) and
-    in how they use the scale. Averaging within a rater and then across raters
-    gives every person the same weight, which is what "the mean opinion" means.
-    """
+    """Mean naturalness, averaged per rater first."""
     per_rater = defaultdict(list)
     for row in rows:
         per_rater[row["rater"]].append(row["rating"])
@@ -242,8 +194,6 @@ def fooling_rate(rows):
     return statistics.mean(means) if means else None
 
 
-# --------------------------------------------------------------------------- #
-# reports
 # --------------------------------------------------------------------------- #
 
 def nmos_report(key, rows):
@@ -275,18 +225,7 @@ def nmos_report(key, rows):
             "n_items": len({r["stimulus"] for r in subset}),
         })
 
-    # Every pairwise comparison is another chance to see a difference that is
-    # not there. With 4 conditions there are 6 of them, so at a nominal 5 % each
-    # the chance of at least one false positive is about 26 %. The unadjusted
-    # interval is still reported - it is the estimate - but the verdict column
-    # uses a Bonferroni-adjusted level, which is the conservative choice and the
-    # one a reader can check.
-    #
-    # The low anchor is reported in the summary above but kept OUT of this
-    # family. It is a fixed reference point for how the scale is being used, not
-    # a system under test, so comparing it costs adjustment budget for a
-    # question nobody asked - and the answer ("the deliberately degraded one
-    # scores worst") carries no information.
+    # 6 comparisons at 5 % each give ~26 % family-wise error; Bonferroni-adjusted verdict.
     compared = [c for c in conditions if c != anchor]
     n_comparisons = len(compared) * (len(compared) - 1) // 2
     adjusted_ci = 1 - (1 - CI) / max(n_comparisons, 1)
@@ -297,9 +236,7 @@ def nmos_report(key, rows):
             subset = [r for r in scored if r["condition"] in (a, b)]
 
             def difference(rs, a=a, b=b):
-                # Paired within rater: every rater rates both conditions on the
-                # same texts, so the per-rater difference removes the rater's
-                # own scale offset - the largest single source of noise in MOS.
+                # Paired within rater to remove each rater's scale offset.
                 per_rater = defaultdict(lambda: {a: [], b: []})
                 for row in rs:
                     per_rater[row["rater"]][row["condition"]].append(row["rating"])
@@ -351,15 +288,7 @@ def turing_report(rows):
 
 
 def familiarity_interaction(rows):
-    """Does knowing the speaker change the fooling rate? One estimate, one CI.
-
-    Reporting the two subgroups as separate intervals and eyeballing the gap is
-    not a test of the difference: two overlapping intervals can still hide a real
-    difference, and two separated ones can arise without it. The contrast itself
-    needs its own interval, which is what this computes.
-
-    Positive = raters who know the speaker are fooled MORE often.
-    """
+    """Does knowing the speaker change the fooling rate? One estimate, one CI."""
     out = []
     usable = [r for r in rows if r["knows_person"] in ("yes", "no")]
     for model in sorted({r["model"] for r in usable}):
@@ -386,13 +315,7 @@ def familiarity_interaction(rows):
 
 
 def reliability_report(rows):
-    """Intra-rater agreement from the hidden repeats.
-
-    Each rater rated two stimuli twice without being told. The mean absolute
-    difference between the two ratings of the same stimulus is the scale noise
-    of one person - the yardstick for how large a difference between conditions
-    has to be before it means anything.
-    """
+    """Intra-rater agreement from the hidden repeats."""
     by_key = defaultdict(list)
     for row in rows:
         by_key[(row["rater"], row["stimulus"])].append(row["rating"])
@@ -408,12 +331,7 @@ def reliability_report(rows):
 
 
 def mixed_models(nmos, turing, real_condition):
-    """Confirmatory mixed models, if statsmodels is available.
-
-    Not the headline number: with ~30 raters the bootstrap makes fewer
-    assumptions. But a reviewer will ask for this, and it is a different way of
-    being wrong, so agreement between the two is worth having.
-    """
+    """Confirmatory mixed models, if statsmodels is available."""
     try:
         import pandas as pd
         import statsmodels.formula.api as smf
@@ -477,12 +395,7 @@ def underpowered_warning(n_raters):
 
 
 def write_summaries(key, responses, quiet=False):
-    """Recompute every summary from scratch.
-
-    Called after each submission by the server, so the files on disk are always
-    current. The bootstrap makes that a few seconds rather than instant, which
-    is still cheaper than remembering to re-run it.
-    """
+    """Recompute every summary from scratch."""
     nmos = nmos_rows(key, responses)
     turing = turing_rows(key, responses)
     real = key.get("real_condition", "REAL")

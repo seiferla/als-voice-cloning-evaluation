@@ -6,24 +6,6 @@ Usage:
     uv run python evaluation/qc_samples.py
     uv run python evaluation/prepare_listening_test.py     # run ONCE
     uv run python evaluation/check_listening_test.py
-
-Three design points, explained in docs/METHODS.md section 6:
-
-- The real voice is a rated condition, not only the answer key, so naturalness
-  has an upper reference.
-- Each rater draws one of the enumerated plans. A plan splits the texts between
-  the two parts, so no rater meets the same text twice, and across raters every
-  model is paired with every text.
-- Nothing in the shipped files says what anything is. Stimuli are named
-  s_001.wav, assigned after the shuffle; key.json holds the only mapping.
-
-Output goes to evaluation/results/listening_test/ (gitignored): samples/,
-index.html, key.json (hidden), run_meta.json, stimuli.csv, responses/ and
-share.zip for remote raters.
-
-Re-running reshuffles everything and overwrites key.json, which desyncs ratings
-already collected. It refuses to run once responses/ has data (--force
-overrides).
 """
 
 import argparse
@@ -56,22 +38,13 @@ EXCERPTS_PATH = RESULTS_DIR / "excerpts.json"
 
 AUDIO_EXT = "wav"
 
-# The real recording is a condition in the N-MOS part, not only the answer in
-# the Turing part. Named so it cannot collide with a model directory name.
+# REAL is a rated condition, not only the Turing answer.
 REAL = "REAL"
 
-# Texts are split into this many role groups. A plan sends the texts where
-# i % ROLE_GROUPS == g to the Turing part and everything else to the N-MOS part,
-# so nobody meets the same text twice. 2 splits them evenly.
-#
-# Raising it LENGTHENS the session: only 1/ROLE_GROUPS of the texts go to the
-# Turing part, so the N-MOS part grows. The plan count is ROLE_GROUPS x
-# len(models).
+# Texts with i % ROLE_GROUPS == g go to the Turing part, the rest to N-MOS.
 ROLE_GROUPS = 2
 
-# Unscored items shown before the real ones so the rater has heard the range of
-# the material before the first score that counts. Taken from texts that are
-# dropped from the analysis anyway.
+# Unscored items shown first, taken from texts dropped from the analysis.
 N_TRAINING = 3
 
 
@@ -96,13 +69,7 @@ def load_texts(case):
 
 
 def real_audio_path(source_audio):
-    """Prefer the denoised recording.
-
-    Note this is only half a fix on its own: denoising removes the background
-    noise that would identify the real samples, but it also gives them
-    digitally silent pauses that no TTS model produces, which identifies them
-    just as well. audio_qc.match_noise_floor closes that second gap.
-    """
+    """Prefer the denoised recording."""
     denoised = Path("data/DeepFilterNet") / source_audio
     if denoised.exists():
         return denoised
@@ -140,12 +107,7 @@ def load_excerpts():
 
 
 def unlocated(spans, models, texts):
-    """Renditions whose excerpt was not found, in the shape of exclusions.json.
-
-    Reusing that shape is deliberate: the balanced-design rule then applies to
-    them too, so the text is dropped for every model rather than leaving one
-    model scored on material the others were not.
-    """
+    """Renditions whose excerpt was not found, in the shape of exclusions.json."""
     return {
         (model, entry["id"]): "excerpt not found in this rendition"
         for model in models
@@ -155,31 +117,14 @@ def unlocated(spans, models, texts):
 
 
 def dropped_texts(excluded, keep_unbalanced):
-    """Texts to drop for EVERY model, not just the one that failed.
-
-    Excluding one model's render of a text leaves that text rated for the
-    other models only. Texts differ in difficulty, so each model's mean would
-    then be an average over a slightly different text set - a small bias that
-    is free to avoid: drop the whole text and every model is scored on
-    identical material (a balanced design).
-
-    Set "keep_unbalanced": true in exclusions.json to keep the extra items
-    instead, e.g. if you would otherwise lose too much material.
-    """
+    """Texts to drop for EVERY model, not just the one that failed."""
     if keep_unbalanced:
         return set()
     return {text_id for _, text_id in excluded}
 
 
 def build_items(case_dir, conditions, texts, spans, index_of, excluded=()):
-    """One stimulus per (condition, text): {"cond", "text_id", "src", "span"}.
-
-    A condition with no located span for a text is skipped rather than looked up
-    blindly. With the default balanced design that case never arises - the text
-    is already dropped for everyone - but with "keep_unbalanced": true it does,
-    and a KeyError in the middle of building a frozen stimulus set is the worst
-    possible time to find out.
-    """
+    """One stimulus per (condition, text): {"cond", "text_id", "src", "span"}."""
     items = []
     for entry in texts:
         text_id = entry["id"]
@@ -203,16 +148,7 @@ def build_items(case_dir, conditions, texts, spans, index_of, excluded=()):
 
 
 def build_plans(texts, models, role_groups=ROLE_GROUPS):
-    """Enumerate the rater plans: (role group) x (model rotation).
-
-    Plan (g, r) sends text slot i to the Turing part when i % role_groups == g,
-    and pairs it with models[(i + r) % len(models)]. Every other text goes to
-    the N-MOS part with all conditions.
-
-    Enumerated rather than drawn per rater: with ~30 raters, random assignment
-    would leave the coverage of some text x model cells to luck. Here every
-    cell is covered as soon as each plan has been used once.
-    """
+    """Enumerate the rater plans: (role group) x (model rotation)."""
     plans = []
     for g in range(role_groups):
         for r in range(len(models)):
@@ -228,16 +164,9 @@ def build_plans(texts, models, role_groups=ROLE_GROUPS):
 
 
 def training_items(case_dir, conditions, texts, skip_texts, spans, index_of, n=N_TRAINING):
-    """Unscored warm-up stimuli, taken from texts dropped from the analysis.
-
-    Dropped texts are the natural source: they are already outside the results,
-    and reusing them means the warm-up sounds exactly like the real task. One
-    real recording first, then clones from different models, so the rater has
-    heard both ends of the material before the first scored item.
-    """
+    """Unscored warm-up stimuli, taken from texts dropped from the analysis."""
     picked, used_models = [], set()
-    # REAL first, then clones from different models, so the rater has heard the
-    # reference and the range of the systems before anything counts.
+    # REAL first, then clones from different models.
     order = [REAL] + [c for c in conditions if c != REAL]
     for entry in texts:
         if entry["id"] not in skip_texts:
@@ -316,8 +245,7 @@ def main():
     excluded, keep_unbalanced = load_exclusions()
     excluded = {**unlocated(spans, models, texts), **excluded}
     skip_texts = dropped_texts(excluded, keep_unbalanced)
-    # A text whose REAL recording has no located excerpt cannot form a Turing
-    # pair and has no anchor, so it goes entirely - independent of balancing.
+    # A text without a located REAL excerpt cannot form a Turing pair.
     skip_texts |= {e["id"] for e in texts if f"{REAL}/{e['id']}" not in spans}
 
     print(f"Case: {case['name']}  conditions: {conditions}  texts: {len(texts)}")
@@ -345,9 +273,7 @@ def main():
     for stale in samples_dir.glob(f"*.{AUDIO_EXT}"):
         stale.unlink()
 
-    # A Turing pair reuses the two stimuli that already exist for its text: the
-    # clone of that model and the real recording. Both sides are therefore cut
-    # from the same excerpt and processed identically.
+    # A Turing pair reuses the clone and REAL stimuli of its text.
     by_key = {}
     all_stimuli = items + training
     order = list(range(len(all_stimuli)))
@@ -418,12 +344,7 @@ def main():
                     for text_id in plan["nmos_texts"]
                     for cond in conditions
                     if (cond, text_id, "scored") in by_key]
-        # Shuffled before shipping. The loops above emit one block of
-        # `conditions` per text in a fixed order, so without this every
-        # position i is condition i % len(conditions) - readable straight out
-        # of index.html, which de-blinds both parts of the test. The page
-        # reshuffles per rater for presentation, but that happens after the
-        # manifest has already been handed over.
+        # Shuffled before shipping, otherwise position i reveals condition i % n.
         rng.shuffle(nmos_ids)
         manifest_plans.append({"id": i, "nmos": nmos_ids, "turing": plan["pairs"]})
 

@@ -2,14 +2,6 @@
 
 Usage:
     uv run python evaluation/listening_test_server.py
-
-Open http://localhost:8765 for each rater in turn. The rater enters their own
-scores; when they submit, the answers are appended to
-responses/all_ratings.jsonl and the button turns into a reset for the next
-person. Add ?plan=2 to force a specific rater plan.
-
-Summaries are recomputed in a background thread: the bootstrap takes a few
-seconds and no rater should wait for it.
 """
 
 import errno
@@ -27,13 +19,10 @@ OUT_DIR = Path(__file__).parent / "results" / "listening_test"
 RESPONSES_DIR = OUT_DIR / "responses"
 PORT = 8765
 
-# One writer at a time: two submissions arriving close together would otherwise
-# recompute and rewrite the same CSVs concurrently.
+# One writer at a time for the CSVs.
 _summary_lock = threading.Lock()
 
-# ThreadingHTTPServer runs each request in its own thread, so two raters
-# submitting close together can otherwise append to all_ratings.jsonl at the
-# same time and interleave their writes into one corrupted line.
+# Serialize appends to all_ratings.jsonl across request threads.
 _append_lock = threading.Lock()
 
 
@@ -47,10 +36,7 @@ def update_summaries():
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
-    # Only the page and the stimuli. OUT_DIR also holds key.json (the answer
-    # key), stimuli.csv, run_meta.json and responses/ with the sessions of
-    # everyone who came before - SimpleHTTPRequestHandler would serve all of
-    # them to any rater who types the path.
+    # Only the page and the stimuli; OUT_DIR also holds key.json and responses/.
     _ALLOWED_PATHS = frozenset({"/", "/index.html"})
     _ALLOWED_PATTERN = re.compile(r"/samples/s_\d{3}\.wav\Z")
 
@@ -103,9 +89,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         threading.Thread(target=update_summaries, daemon=True).start()
 
     def end_headers(self):
-        # The stimulus set is rebuilt between studies and browsers happily serve
-        # a stale index.html or a stale sample from cache, which would silently
-        # desync a rater from key.json.
+        # No caching: a stale index.html would desync the rater from key.json.
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -130,9 +114,7 @@ def main():
     port = PORT
     httpd = serve(port)
     if httpd is None:
-        # Usually an earlier session of this script still running. Don't fail
-        # with a traceback in the middle of a rater session - say what holds
-        # the port and move to the next one.
+        # Usually an earlier session still holds the port; move to the next one.
         print(f"Port {PORT} is already in use. Most likely an older "
               f"listening_test_server.py is still running.")
         print(f"  Check it with:  lsof -nP -iTCP:{PORT} -sTCP:LISTEN")

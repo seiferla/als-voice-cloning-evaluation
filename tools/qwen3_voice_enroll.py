@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""Voice enrollment for Qwen3-TTS-VC-Realtime (Model Studio, Singapore region).
-
-Creates a voice clone usable over the realtime WebSocket path
-(/api-ws/v1/realtime), and lists or deletes existing voices.
-
-Requires QWEN3_API_KEY (a Singapore key) and QWEN3_WORKSPACE_ID in .env.
-
-Examples:
-    uv run python tools/qwen3_voice_enroll.py create --audio ref.wav --name larsrt
-    uv run python tools/qwen3_voice_enroll.py list
-    uv run python tools/qwen3_voice_enroll.py delete --voice qwen-tts-vc-...
-"""
+"""Voice enrollment for Qwen3-TTS-VC-Realtime (Model Studio, Singapore region)."""
 
 import argparse
 import base64
@@ -26,8 +15,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # The workspace id is account-specific, so it lives in .env instead of here.
-# QWEN3_* is the naming the rest of the repo uses; the DASHSCOPE_* names are
-# accepted too, because that is what the DashScope docs call them.
 WORKSPACE_ID = os.getenv("QWEN3_WORKSPACE_ID") or os.getenv("DASHSCOPE_WORKSPACE_ID")
 BASE_URL = os.getenv("QWEN3_BASE_URL") or os.getenv("DASHSCOPE_BASE_URL") or (
     f"https://{WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/api/v1"

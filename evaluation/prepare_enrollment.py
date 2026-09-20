@@ -2,18 +2,6 @@
 
 Usage:
     uv run python evaluation/prepare_enrollment.py data/wav/<reference>.wav
-
-The three services were not cloned from the same input: qwen3 with server-side
-preprocessing, voxtral with raw bytes plus a gender hint, s2pro through a web
-upload. A similarity difference can then come from the model or from the audio
-it was given, and the results cannot separate those.
-
-This writes data/enrollment/reference_<stem>.wav - mono, 24 kHz, loudness
-normalized, optionally trimmed - plus enrollment.json with the source and output
-sha256, the parameters and a per-provider checklist. Deterministic.
-
-It does not call the APIs. Enrollment costs money, two of the three keep the
-audio, and s2pro has no enrollment API. See docs/METHODS.md section 5.
 """
 
 import argparse
@@ -39,10 +27,8 @@ OUT_DIR = Path("data/enrollment")
 MANIFEST = OUT_DIR / "enrollment.json"
 
 # 24 kHz is the lowest native rate among the three systems, so every provider
-# gets the same bandwidth rather than one of them getting more.
 TARGET_SR = 24000
-# Enrollment audio is normally wanted at a normal speech level, not at the
-# -23 LUFS broadcast target used for listening-test stimuli.
+# Enrollment audio at a normal speech level, not the -23 LUFS stimulus target.
 TARGET_LUFS = -20.0
 
 PROVIDER_SETTINGS = {

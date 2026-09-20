@@ -3,16 +3,6 @@ the numbers quoted in the prose of every evaluation section.
 
 Usage:
     uv run python tools/make_paper_tables.py
-
-The manuscript must not carry hand-typed numbers. Tables are written to
-docs/paper/tables/ and pulled into docs/paper/objective_metrics.tex with
-\\input, so re-running the evaluation and re-running this script is enough to
-bring the paper up to date.
-
-A few values are also quoted in the running text, where a table cell cannot be
-referenced. Those are listed in PROSE_CLAIMS and checked against the CSVs on
-every run. A mismatch is printed with the sentence that has to be edited; the
-script does not rewrite prose.
 """
 
 import csv
@@ -22,8 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "evaluation" / "results"
 OUT_DIR = ROOT / "docs" / "paper" / "tables"
 
-# Display names and the order they appear in every table. REAL is listed last
-# and separated by a rule: it is a reference point, not a system under test.
+# Display names and table order; REAL last, as a reference not a system.
 LABELS = {
     "qwen3": "Qwen3",
     "s2pro": "Fish Speech S2 Pro",
@@ -36,7 +25,6 @@ SYSTEMS = ["qwen3", "s2pro", "voxtral"]
 SHORT = {"qwen3": "Qwen3", "s2pro": "S2 Pro", "voxtral": "Voxtral", "REAL": "Real"}
 
 # Values quoted in the running text of the manuscript sections.
-#   (name, result file, row selector, column, value as written, decimals)
 OBJ, LT = "", "listening_test/"
 PROSE_CLAIMS = [
     # objective_metrics.tex
@@ -190,7 +178,8 @@ def results_table(summary):
     running text, where a gap in the data does not read as a hole in a table.
     Service RTF is kept instead - it is complete for all three systems and is
     the one figure the vendors themselves quote in Section 'Model choice',
-    which is what makes the measured value worth a table cell."""
+    which is what makes the measured value worth a table cell.
+    """
     body = []
     for model in SYSTEMS + ["REAL"]:
         if model == "REAL":
@@ -264,8 +253,7 @@ def main():
     reliability = read("render_reliability.csv")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    # objective_results.tex is the one the manuscript uses; the others are kept
-    # for an appendix or a longer version.
+    # objective_results.tex is used by the manuscript; the others are for an appendix.
     written = {
         "objective_results.tex": results_table(summary),
         "render_reliability.tex": render_reliability_table(reliability),

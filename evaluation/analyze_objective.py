@@ -2,13 +2,6 @@
 
 Usage:
     uv run python evaluation/analyze_objective.py [results.csv]
-
-run_eval.py reports medians, which say what a model usually does but not whether
-one model is better than another. Every comparison here is paired within text -
-the same sentence rendered by two models - with intervals bootstrapped over
-texts and Bonferroni-adjusted verdicts.
-
-Writes objective_summary.csv and objective_pairwise.csv.
 """
 
 import argparse
@@ -97,18 +90,7 @@ def load_texts(case):
 
 
 def render_reliability(case_name=None):
-    """How often each system produced audio that could be evaluated at all.
-
-    Every metric below, and the whole listening test, is computed on the
-    renditions that survived screening. A system that fails on a third of the
-    texts is then compared only on the texts it handled - and because a failed
-    text is dropped for EVERY system (the balanced design), its failures leave
-    no trace in any other number. For a communication aid that reliability gap
-    matters more than a small difference in similarity or naturalness, so it is
-    reported here rather than left in the build log.
-
-    Counted over all texts in the set, before any exclusion.
-    """
+    """How often each system produced audio that could be evaluated at all."""
     excerpts_path = RESULTS_DIR / "excerpts.json"
     if not excerpts_path.exists():
         return []
@@ -117,8 +99,7 @@ def render_reliability(case_name=None):
     spans = excerpts["spans"]
     texts = [t["id"] for t in load_texts(load_case(case_name))]
 
-    # Specific reasons where we have them; "not located" is the catch-all for a
-    # rendition the aligner could not find the excerpt in at all.
+    # Specific reasons where known; "not located" otherwise.
     reasons = defaultdict(dict)
     for entry in excerpts.get("rejected", []):
         reasons[entry["source"]][entry["text_id"]] = entry["reason"]
@@ -218,7 +199,7 @@ def main():
                             "ci_low": round(lo, 4), "ci_high": round(hi, 4),
                             "n_texts": len(data)})
 
-        # paired comparisons, Bonferroni-adjusted over the family
+        # Paired comparisons, Bonferroni-adjusted over the family.
         pairs = [(a, b) for i, a in enumerate(present) for b in present[i + 1:]]
         adjusted = 1 - (1 - CI) / max(len(pairs), 1)
         print(f"\n  paired by text, verdict Bonferroni-adjusted over "

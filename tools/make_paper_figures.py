@@ -2,10 +2,6 @@
 
 Usage:
     uv run python tools/make_paper_figures.py
-
-The plots are the ones from notebooks/results_analysis.ipynb (cells 8, 15 and
-12), reproduced here so that the paper does not depend on a notebook having
-been run by hand. Written to docs/paper/figures/.
 """
 
 from pathlib import Path
