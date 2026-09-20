@@ -1,5 +1,7 @@
 # myEcho — Voice Cloning Evaluation
 
+Lars Seifert, M.Sc. Informatik, Hochschule Karlsruhe. Betreuer: Prof. Patrick Baier.
+
 Part of **myEcho**, a project on voice cloning for an ALS patient. This
 repository compares three commercial voice-cloning APIs on the voice of one
 German speaker, using voice memos she recorded in 2021.
