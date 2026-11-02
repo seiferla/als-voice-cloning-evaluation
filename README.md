@@ -15,7 +15,8 @@ report sections.
 ## Main findings
 
 *Short version of the thesis "Evaluation of open-source voice cloning models
-for ALS patient: A case study using legacy audio data".*
+for ALS patient: A case study using legacy audio data"
+([PDF](docs/documentation.pdf)).*
 
 - **Two of three systems sound as natural as the real recordings.** s2pro and
   voxtral are not separable from the genuine voice on naturalness. qwen3 is
@@ -61,7 +62,7 @@ against REAL with bootstrap intervals.
 
 ### Data and preprocessing
 
-42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a 56-year-old
+42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a
 native German speaker, used with her written consent. Many have background
 noise, visible as a constant low-frequency band (left). DeepFilterNet2 removes
 it without audible damage (right). The cleaned file is the reference all three
@@ -130,8 +131,8 @@ are: pausing and brightness still leak through (see Limitations).
 
 Raters who know the patient were fooled *more* often than strangers (+0.13,
 +0.11, +0.25), but all three intervals contain zero: a trend, not a result.
-The effect cannot be interpreted yet: no unfamiliar rater was older than 42,
-the familiar group has a median age of 51, and hearing was not screened.
+The effect cannot be interpreted yet: the familiar group is clearly older than
+the unfamiliar one, and hearing was not screened.
 
 ### Similarity and naturalness disagree
 
@@ -190,6 +191,7 @@ All ten limitations: [docs/METHODS.md](docs/METHODS.md#9-limitations).
 
 | | |
 |---|---|
+| Full thesis (PDF) | [docs/documentation.pdf](docs/documentation.pdf) |
 | Methodology and all numbers | [docs/METHODS.md](docs/METHODS.md) |
 | Preregistered hypotheses | [PREREGISTRATION.md](PREREGISTRATION.md) |
 | Report sections (LaTeX) | `docs/paper/` |
