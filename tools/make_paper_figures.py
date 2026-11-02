@@ -1,4 +1,4 @@
-"""Export the three manuscript figures as PDF from the result files.
+"""Export the manuscript figures as PDF and PNG from the result files.
 
 Usage:
     uv run python tools/make_paper_figures.py
@@ -91,6 +91,30 @@ def fig_sim_vs_nmos(obj_summary, nmos_summary):
     return fig
 
 
+def fig_objective(obj_summary):
+    panels = [("sim", "SIM", MODEL_ORDER + ["REAL"]),
+              ("wer", "WER", MODEL_ORDER + ["REAL"]),
+              ("service_rtf", "service RTF", MODEL_ORDER)]
+
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.5))
+    for ax, (metric, title, conditions) in zip(axes, panels):
+        row = (obj_summary[obj_summary["metric"] == metric]
+               .set_index("model").loc[conditions])
+        yerr = [row["median"] - row["ci_low"], row["ci_high"] - row["median"]]
+        x = np.arange(len(conditions))
+        ax.bar(x, row["median"], yerr=yerr, capsize=3, alpha=0.85,
+               color=[COLORS[c] for c in conditions])
+        ax.set_xticks(x)
+        ax.set_xticklabels([LABELS[c] for c in conditions], rotation=30, ha="right")
+        ax.set_title(title)
+    axes[0].set_ylim(0, 1)
+    axes[2].axhline(1.0, color="black", linestyle="--", linewidth=1)
+    axes[2].set_ylim(0, 1.1)
+    axes[2].text(0.02, 1.02, "real time", fontsize=7, transform=axes[2].get_yaxis_transform())
+    fig.tight_layout()
+    return fig
+
+
 def main():
     obj_summary = pd.read_csv(RESULTS / "objective_summary.csv")
     nmos_summary = pd.read_csv(LT / "nmos_summary.csv")
@@ -102,9 +126,11 @@ def main():
         "fig_nmos.pdf": fig_nmos(nmos_summary, ratings_long),
         "fig_turing.pdf": fig_turing(turing_summary),
         "fig_sim_vs_nmos.pdf": fig_sim_vs_nmos(obj_summary, nmos_summary),
+        "fig_objective.pdf": fig_objective(obj_summary),
     }
     for name, fig in figures.items():
         fig.savefig(OUT / name)
+        fig.savefig(OUT / name.replace(".pdf", ".png"), dpi=200)
         plt.close(fig)
         print(f"wrote {(OUT / name).relative_to(ROOT)}")
 

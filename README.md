@@ -2,154 +2,206 @@
 
 Lars Seifert, M.Sc. Informatik, Hochschule Karlsruhe. Betreuer: Prof. Patrick Baier.
 
-Part of **myEcho**, a project on voice cloning for an ALS patient. This
-repository compares three commercial voice-cloning APIs on the voice of one
-German speaker, using voice memos she recorded in 2021.
+Part of **myEcho**, a project on voice cloning for an ALS patient. The patient
+has since lost her speech. All that is left of her voice are 42 WhatsApp voice
+messages from 2021, about half an hour in total, recorded on a phone for other
+purposes.
 
-Services: **s2pro** (Fish Audio), **voxtral** (Mistral), **qwen3** (Alibaba
-DashScope). Each clones the voice from the same 30 s reference and renders 16
-texts. Four measures:
+**Question:** how much of a voice can be rebuilt from material that was never
+recorded for this? This repository compares three commercial zero-shot
+voice-cloning services on that material and holds the code, data summaries and
+report sections.
 
-| | metric | how |
+## Main findings
+
+*Short version of the thesis "Evaluation of open-source voice cloning models
+for ALS patient: A case study using legacy audio data".*
+
+- **Two of three systems sound as natural as the real recordings.** s2pro and
+  voxtral are not separable from the genuine voice on naturalness. qwen3 is
+  clearly worse.
+- **No system passes as the patient in a direct comparison.** Only voxtral
+  comes close to chance level in the real-vs-clone test.
+- **The objective metric points at the wrong system.** qwen3 has the highest
+  speaker similarity but is rated least natural and detected most often. Only
+  the listening test showed this.
+- **Recommendation: s2pro.** It is the only system that meets every
+  requirement at once (see [below](#recommendation)). It is not chosen because
+  it sounds better than voxtral; the data cannot show that.
+- **The patient identified her own voice in 6 of 6 pairs** (separate session,
+  kept out of all averages).
+- **Legacy material is enough for an assistive voice, not for a replica.**
+
+## Setup in short
+
+| | |
+|---|---|
+| systems | **s2pro** (Fish Audio), **voxtral** (Mistral), **qwen3** (Alibaba DashScope) |
+| enrollment | one 30 s reference, denoised with DeepFilterNet, same for all three |
+| test material | 16 German texts; the speaker's own recordings run as a fourth condition, **REAL** |
+| listening test | 30 raters, 13 texts, 52 naturalness items, 39 real-vs-clone pairs |
+
+| measure | metric | how |
 |---|---|---|
 | speaker similarity | SIM | cosine similarity of ECAPA-TDNN embeddings |
 | intelligibility | WER | Whisper ASR vs. the target text |
-| naturalness | ACR 1–5 | listening test, 30 raters |
-| detectability | 2AFC | real vs. clone, "which is the real voice" |
+| naturalness | N-MOS, 1–5 | listening test |
+| detectability | 2AFC / "raters fooled" | real vs. clone: "which is the real voice?" |
+| speed | RTF, TTFA | service real-time factor, time to first audio |
 
-plus API latency and time to first audio. The speaker's own recordings run
-through the whole evaluation as a fourth condition, REAL, and every number is
-read against it.
+Every number is read against REAL.
 
-## Result
+### Pipeline
 
-Objective metrics on 16 texts, listening test with 30 raters on 13 texts.
+![Evaluation pipeline](docs/paper/figures/pipeline.png)
 
-| condition | SIM ↑ | WER ↓ | naturalness ↑ | raters fooled |
-|---|---|---|---|---|
-| **REAL** | **0.787** | **0.190** | **4.16** | |
-| qwen3 | 0.755 | 0.097 | 3.04 | 0.14 |
-| s2pro | 0.703 | 0.119 | 3.92 | 0.25 |
-| voxtral | 0.609 | 0.116 | 4.06 | 0.41 |
+The three services and REAL render or supply the same 16 texts. Objective
+metrics and the listening test run in parallel; every service is compared
+against REAL with bootstrap intervals.
 
-The objective metric and the listeners rank the systems in opposite order.
-qwen3 has the highest similarity and is the only system the metric cannot
-separate from the real voice (−0.03, adjusted CI [−0.07, +0.00]); it is also
-rated least natural, the only system measurably below REAL (−1.12, CI
-[−1.65, −0.51]), and detected most often. voxtral has the lowest similarity, is
-not separable from REAL on naturalness, and is the only system raters could not
-tell from the real voice above chance (0.41, CI [0.23, 0.62]).
+### Data and preprocessing
 
-This reverses the preregistered hypothesis H2 that naturalness would follow
-similarity ([PREREGISTRATION.md](PREREGISTRATION.md)). All clones also have a
-lower WER than the human original, because read speech is cleaner than a
-spontaneous phone memo; WER measures the material here, not the model.
+42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a 56-year-old
+native German speaker, used with her written consent. Many have background
+noise, visible as a constant low-frequency band (left). DeepFilterNet2 removes
+it without audible damage (right). The cleaned file is the reference all three
+services were enrolled with.
 
-Methodology and all numbers: [docs/METHODS.md](docs/METHODS.md). Report
-sections: `docs/paper/`.
+| before | after DeepFilterNet2 |
+|---|---|
+| ![Mel spectrogram with noise](docs/paper/figures/mel_before.png) | ![Mel spectrogram denoised](docs/paper/figures/mel_after.png) |
 
-## Running it
+Further steps: mono WAV, 80 Hz high-pass, compressor (−16 dB), loudness
+normalization to −24 LUFS, limiter at −1 dBFS, pause removal with a threshold
+derived per file.
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+. `data/` is
-gitignored; the pipeline expects
+## Results
 
-```
-data/
-├── wav/                 the speaker's recordings, one WAV per text
-├── DeepFilterNet/       denoised copies, same names (optional)
-├── eval_texts.json      per text: id, source_audio, text
-└── enrollment/          written by `make enrollment`
-```
+### Objective metrics (16 texts, medians, 95 % CI)
 
-```bash
-uv sync --extra eval
-cp .env.example .env     # API keys and one voice ID per service
-```
+![SIM, WER and service RTF per system](docs/paper/figures/fig_objective.png)
 
-| service | key | voice |
+| condition | SIM ↑ | WER ↓ | service RTF ↓ | TTFA ↓ | usable renders |
+|---|---|---|---|---|---|
+| **REAL** | **0.787** | **0.190** | | | |
+| qwen3 | 0.755 | 0.097 | 0.39 | 1.55 s | 16 / 16 |
+| s2pro | 0.703 | 0.119 | 0.23 | 1.21 s | 16 / 16 |
+| voxtral | 0.609 | 0.116 | 0.14 | – | 13 / 16 |
+
+- qwen3 has the highest similarity and is the only system not separable from
+  REAL (−0.03, adjusted CI [−0.07, +0.00]).
+- All clones have a lower WER than REAL. Read speech is cleaner than a
+  spontaneous phone memo, so WER measures the material here, not the model.
+- voxtral is non-streaming, so it has no TTFA. It failed on 3 of 16 texts.
+- All services are faster than real time (RTF < 1). The median end-to-end
+  latency is still 5.7–13.8 s per text because the texts are long. A dialogue
+  app would need to synthesize in short segments.
+
+### Naturalness (30 raters)
+
+![Naturalness per system](docs/paper/figures/fig_nmos.png)
+
+| condition | N-MOS | 95 % CI | vs. REAL (adjusted) |
+|---|---|---|---|
+| **REAL** | **4.16** | [3.81, 4.46] | |
+| voxtral | 4.06 | [3.79, 4.34] | −0.10 [−0.57, +0.48], not separable |
+| s2pro | 3.92 | [3.64, 4.22] | −0.23 [−0.72, +0.44], not separable |
+| qwen3 | 3.04 | [2.71, 3.37] | −1.12 [−1.65, −0.51] |
+
+qwen3 is below every other condition. s2pro and voxtral are not separable from
+each other or from REAL. The rating noise (60 repeat pairs) is 0.55 points, so
+the s2pro–voxtral gap of 0.13 is inside the noise.
+
+### Real vs. clone (2AFC)
+
+![Share of pairs where the clone was picked as the real voice](docs/paper/figures/fig_turing.png)
+
+Share of pairs in which the clone was picked as the real voice. 0.5 is chance.
+
+| system | all raters | knows the speaker | does not |
+|---|---|---|---|
+| voxtral | 0.41 [0.23, 0.62], chance | 0.53 | 0.29 |
+| s2pro | 0.25 [0.12, 0.40] | 0.30 | 0.19 |
+| qwen3 | 0.14 [0.00, 0.25] | 0.20 | 0.07 |
+
+voxtral is the only system raters could not tell from the real voice above
+chance. The fooling rate is a lower bound on how distinguishable the clones
+are: pausing and brightness still leak through (see Limitations).
+
+Raters who know the patient were fooled *more* often than strangers (+0.13,
++0.11, +0.25), but all three intervals contain zero: a trend, not a result.
+The effect cannot be interpreted yet: no unfamiliar rater was older than 42,
+the familiar group has a median age of 51, and hearing was not screened.
+
+### Similarity and naturalness disagree
+
+![SIM against N-MOS](docs/paper/figures/fig_sim_vs_nmos.png)
+
+The metric and the listeners rank the systems in opposite order. The system
+closest to the real voice in embedding space (qwen3) is rated least natural.
+The system farthest away (voxtral) is rated closest to REAL.
+
+### Hypotheses ([PREREGISTRATION.md](PREREGISTRATION.md))
+
+| | hypothesis | outcome |
 |---|---|---|
-| s2pro | `S2PRO_API_KEY` | `S2PRO_REFERENCE_ID`, `S2PRO_LATENCY_MODE=balanced` for TTFA |
-| voxtral | `VOXTRAL_API_KEY` | `VOXTRAL_VOICE_ID` |
-| qwen3 | `QWEN3_API_KEY` | `QWEN3_VOICE_ID`, `QWEN3_WORKSPACE_ID` |
+| H1 | all systems below REAL on naturalness | numerically yes for all three, confirmed only for qwen3 |
+| H2 | naturalness follows similarity | **reversed** |
+| H3 | all systems detected above chance | fails for voxtral |
+| H4 | knowing the speaker increases detection | opposite direction, no difference excludes zero (n = 15 vs. 14 per system) |
 
-A service without a voice ID is skipped. `evaluation/testset.json` points at the
-reference audio and the texts file; `reference_audio` must be a recording that
-was not used for enrollment.
+## Recommendation
+
+| requirement | qwen3 | s2pro | voxtral |
+|---|---|---|---|
+| natural as the real recordings | no | yes | yes |
+| renders every text | yes | yes | no (13 / 16) |
+| usable licence | yes | yes | non-commercial |
+
+- **qwen3** is ruled out by perception.
+- **voxtral** is ruled out by licence and reliability: a system that fails on
+  one text in five cannot replace a voice.
+- **s2pro** meets all requirements. Still open: all three systems ran through
+  provider APIs, so the enrollment recording left the machine. Self-hosting was
+  not tested.
+
+## Lessons
+
+1. **Zero-shot is enough.** A reference of a few seconds matched the fine-tuned
+   model in a listening comparison, at a fraction of the compute.
+2. **Preprocessing still matters.** DeepFilterNet removed the phone noise, but
+   it also created digitally silent pauses that the listening test had to
+   neutralise.
+3. **Objective metrics are not enough.** They pointed at the wrong system.
+
+## Limitations
+
+- One speaker: intervals generalize over texts and raters, not over speakers.
+- Raters are a convenience sample without hearing screening. The 15 / 15 split
+  on familiarity is by chance.
+- The three excluded texts are all voxtral failures, so every system is scored
+  on material selected by voxtral's success.
+- Real side is spontaneous speech on a phone line; clones read a transcript.
+- No low anchor, so absolute N-MOS values are only comparable within this study.
+
+All ten limitations: [docs/METHODS.md](docs/METHODS.md#9-limitations).
+
+## Go deeper
+
+| | |
+|---|---|
+| Methodology and all numbers | [docs/METHODS.md](docs/METHODS.md) |
+| Preregistered hypotheses | [PREREGISTRATION.md](PREREGISTRATION.md) |
+| Report sections (LaTeX) | `docs/paper/` |
+| Run it yourself, repository layout | [docs/REPRODUCING.md](docs/REPRODUCING.md) |
+
+Quickstart (needs [uv](https://docs.astral.sh/uv/), Python 3.11+, your own
+recordings in `data/` and API keys in `.env`):
 
 ```bash
-make enrollment SOURCE=data/wav/<memo>.wav   # one reference file for all 3 services
-make objective                               # synthesize + SIM/WER/latency (calls the APIs)
-make stimuli                                 # excerpts, screening, blinded listening test
-make check                                   # design and blinding gates, exits non-zero on failure
-make sessions                                # serve the test at localhost:8765
-make results                                 # naturalness, 2AFC, objective comparisons
-make report                                  # tables and figures for docs/paper/
+uv sync --extra eval && cp .env.example .env
+make objective   # calls the APIs
+make results     # analysis from the listening-test data
 ```
 
-Only `make objective` calls the APIs; everything else runs on its output. The
-stimulus set is frozen once `responses/` has data; `make stimuli` refuses to
-rebuild it. Below five raters `make results` suppresses the comparison verdicts.
-
-Single renders without the pipeline, e.g. to check a key after enrolling:
-
-```bash
-uv run voxtral-synthesize --text "Guten Morgen" --out outputs/test.wav
-uv run qwen3-synthesize   --text "Guten Morgen" --out outputs/test.wav
-uv run s2pro-synthesize   --text "Guten Morgen" --out outputs/test.mp3
-```
-
-qwen3 voices are enrolled with
-`uv run python tools/qwen3_voice_enroll.py create --audio ref.wav --name myvoice`;
-voxtral and s2pro through their APIs or web UI, using the file `make enrollment`
-writes.
-
-## Layout
-
-```
-src/myecho/
-├── config.py                     keys and endpoints from .env
-├── cli/                          the three synthesize commands
-├── models/                       s2_pro.py, voxtral.py, qwen3.py
-└── evaluation/
-    ├── metrics.py                SIM, WER, ASR
-    ├── excerpt.py                choosing and locating excerpts
-    └── audio_qc.py               loudness and pause-floor matching
-
-evaluation/                       one script per Makefile stage
-├── testset.json
-├── prepare_enrollment.py         make enrollment
-├── run_eval.py                   make objective
-├── select_excerpts.py            make stimuli
-├── qc_samples.py
-├── prepare_listening_test.py
-├── listening_test_template.html
-├── check_listening_test.py       make check
-├── listening_test_server.py      make sessions
-├── analyze_listening_test.py     make results
-├── analyze_objective.py
-└── results/                      audio and rater-level answers gitignored;
-                                  the summary CSVs are committed
-
-tools/
-├── check_ci_coverage.py          interval coverage and power by simulation
-├── make_paper_tables.py          report tables from the CSVs, checks quoted numbers
-├── make_paper_figures.py         report figures
-└── qwen3_voice_enroll.py
-
-tests/                            uv run --extra dev pytest
-notebooks/                        data_analysis, data_preprocessing, results_analysis
-docs/
-├── METHODS.md
-└── paper/                        report sections, tables, figures
-PREREGISTRATION.md                hypotheses and design, committed before the first rater
-```
-
-## Notes
-
-- s2pro streams over WebSocket and returns 44.1 kHz WAV; voxtral is HTTP,
-  non-streaming, 24 kHz; qwen3 streams over `/api-ws/v1/realtime`, 24 kHz. A
-  qwen3 voice enrolled for `qwen3-tts-vc-realtime-*` only works over that path.
-- ASR and embeddings run on CPU; CUDA is much faster.
-- `WHISPER_MODEL` is `small`. Changing it means recomputing every WER value
-  including the REAL floor.
-- All audio and rater-level data stay out of the repository.
+All audio and rater-level data stay out of the repository.
