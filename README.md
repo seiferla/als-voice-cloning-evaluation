@@ -62,7 +62,7 @@ against REAL with bootstrap intervals.
 
 ### Data and preprocessing
 
-42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a 56-year-old
+42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a
 native German speaker, used with her written consent. Many have background
 noise, visible as a constant low-frequency band (left). DeepFilterNet2 removes
 it without audible damage (right). The cleaned file is the reference all three
@@ -131,8 +131,8 @@ are: pausing and brightness still leak through (see Limitations).
 
 Raters who know the patient were fooled *more* often than strangers (+0.13,
 +0.11, +0.25), but all three intervals contain zero: a trend, not a result.
-The effect cannot be interpreted yet: no unfamiliar rater was older than 42,
-the familiar group has a median age of 51, and hearing was not screened.
+The effect cannot be interpreted yet: the familiar group is clearly older than
+the unfamiliar one, and hearing was not screened.
 
 ### Similarity and naturalness disagree
 
