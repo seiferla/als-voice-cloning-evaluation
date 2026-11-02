@@ -79,6 +79,8 @@ derived per file.
 
 ### Objective metrics (16 texts, medians, 95 % CI)
 
+![SIM, WER and service RTF per system](docs/paper/figures/fig_objective.png)
+
 | condition | SIM ↑ | WER ↓ | service RTF ↓ | TTFA ↓ | usable renders |
 |---|---|---|---|---|---|
 | **REAL** | **0.787** | **0.190** | | | |
