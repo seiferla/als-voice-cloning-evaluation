@@ -50,7 +50,7 @@ sections: `docs/paper/`.
 
 ## Running it
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.10+. `data/` is
+Requires [uv](https://docs.astral.sh/uv/) and Python 3.11+. `data/` is
 gitignored; the pipeline expects
 
 ```

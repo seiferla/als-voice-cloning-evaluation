@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "voice-cloning-eval"
 version = "0.1.0"
 description = "Evaluation framework for TTS and voice cloning models"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
     "websockets>=13.0",
