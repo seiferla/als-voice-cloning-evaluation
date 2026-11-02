@@ -105,6 +105,7 @@ def main():
     }
     for name, fig in figures.items():
         fig.savefig(OUT / name)
+        fig.savefig(OUT / name.replace(".pdf", ".png"), dpi=200)
         plt.close(fig)
         print(f"wrote {(OUT / name).relative_to(ROOT)}")
 
