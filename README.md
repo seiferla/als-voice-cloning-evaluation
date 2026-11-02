@@ -15,7 +15,8 @@ report sections.
 ## Main findings
 
 *Short version of the thesis "Evaluation of open-source voice cloning models
-for ALS patient: A case study using legacy audio data".*
+for ALS patient: A case study using legacy audio data"
+([PDF](docs/documentation.pdf)).*
 
 - **Two of three systems sound as natural as the real recordings.** s2pro and
   voxtral are not separable from the genuine voice on naturalness. qwen3 is
@@ -190,6 +191,7 @@ All ten limitations: [docs/METHODS.md](docs/METHODS.md#9-limitations).
 
 | | |
 |---|---|
+| Full thesis (PDF) | [docs/documentation.pdf](docs/documentation.pdf) |
 | Methodology and all numbers | [docs/METHODS.md](docs/METHODS.md) |
 | Preregistered hypotheses | [PREREGISTRATION.md](PREREGISTRATION.md) |
 | Report sections (LaTeX) | `docs/paper/` |
