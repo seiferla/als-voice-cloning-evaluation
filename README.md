@@ -14,6 +14,9 @@ report sections.
 
 ## Main findings
 
+*Short version of the thesis "Evaluation of open-source voice cloning models
+for ALS patient: A case study using legacy audio data".*
+
 - **Two of three systems sound as natural as the real recordings.** s2pro and
   voxtral are not separable from the genuine voice on naturalness. qwen3 is
   clearly worse.
@@ -25,6 +28,8 @@ report sections.
 - **Recommendation: s2pro.** It is the only system that meets every
   requirement at once (see [below](#recommendation)). It is not chosen because
   it sounds better than voxtral; the data cannot show that.
+- **The patient identified her own voice in 6 of 6 pairs** (separate session,
+  kept out of all averages).
 - **Legacy material is enough for an assistive voice, not for a replica.**
 
 ## Setup in short
@@ -46,6 +51,30 @@ report sections.
 
 Every number is read against REAL.
 
+### Pipeline
+
+![Evaluation pipeline](docs/paper/figures/pipeline.png)
+
+The three services and REAL render or supply the same 16 texts. Objective
+metrics and the listening test run in parallel; every service is compared
+against REAL with bootstrap intervals.
+
+### Data and preprocessing
+
+42 voice messages (WhatsApp, 2021–2022, 30.9 min, 14–153 s each) from a 56-year-old
+native German speaker, used with her written consent. Many have background
+noise, visible as a constant low-frequency band (left). DeepFilterNet2 removes
+it without audible damage (right). The cleaned file is the reference all three
+services were enrolled with.
+
+| before | after DeepFilterNet2 |
+|---|---|
+| ![Mel spectrogram with noise](docs/paper/figures/mel_before.png) | ![Mel spectrogram denoised](docs/paper/figures/mel_after.png) |
+
+Further steps: mono WAV, 80 Hz high-pass, compressor (−16 dB), loudness
+normalization to −24 LUFS, limiter at −1 dBFS, pause removal with a threshold
+derived per file.
+
 ## Results
 
 ### Objective metrics (16 texts, medians, 95 % CI)
@@ -62,6 +91,9 @@ Every number is read against REAL.
 - All clones have a lower WER than REAL. Read speech is cleaner than a
   spontaneous phone memo, so WER measures the material here, not the model.
 - voxtral is non-streaming, so it has no TTFA. It failed on 3 of 16 texts.
+- All services are faster than real time (RTF < 1). The median end-to-end
+  latency is still 5.7–13.8 s per text because the texts are long. A dialogue
+  app would need to synthesize in short segments.
 
 ### Naturalness (30 raters)
 
@@ -93,6 +125,11 @@ Share of pairs in which the clone was picked as the real voice. 0.5 is chance.
 voxtral is the only system raters could not tell from the real voice above
 chance. The fooling rate is a lower bound on how distinguishable the clones
 are: pausing and brightness still leak through (see Limitations).
+
+Raters who know the patient were fooled *more* often than strangers (+0.13,
++0.11, +0.25), but all three intervals contain zero: a trend, not a result.
+The effect cannot be interpreted yet: no unfamiliar rater was older than 42,
+the familiar group has a median age of 51, and hearing was not screened.
 
 ### Similarity and naturalness disagree
 
